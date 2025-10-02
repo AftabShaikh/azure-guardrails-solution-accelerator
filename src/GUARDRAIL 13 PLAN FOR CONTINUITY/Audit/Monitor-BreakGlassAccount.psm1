@@ -3,13 +3,17 @@
    
 The solution will ensures that Break Glass accounts remain active and secure by monitoring the last login date.
 .DESCRIPTION
-The solution will ensures that Break Glass accounts remain active and secure by monitoring the last login date.
+The solution ensures that Break Glass accounts remain active and secure by monitoring the last login date. 
+This implementation uses Microsoft Graph API to retrieve user sign-in activity directly from Azure AD, 
+bypassing Log Analytics Workspace retention limitations that could cause false non-compliance when 
+LAW retention is set to less than a year.
 .PARAMETER Name
         token : auth token 
         ControlName :-  GUARDRAIL 13 PLAN FOR CONTINUITY
         FirstBreakGlassUPN: UPN for the first Break Glass account 
         SecondBreakGlassUPN: UPN for the second Break Glass account
         ItemName, 
+        LAWResourceId : Log Analytics Workspace Resource ID (kept for compatibility, but no longer used for sign-in validation - now uses Microsoft Graph API directly)
         WorkSpaceID : Workspace ID to ingest the logs 
         WorkSpaceKey: Workspace Key for the Workdspace 
         LogType: GuardrailsCompliance, it will show in log Analytics search as GuardrailsCompliance_CL
@@ -131,9 +135,18 @@ function Test-BreakGlassAccounts {
     }
     else {
       # Step 2: Validate BG account Sign-in activity using Microsoft Graph API
-      # This approach bypasses Log Analytics Workspace retention limitations by getting 
-      # signInActivity directly from Azure AD, ensuring compliance checks work regardless 
-      # of LAW retention settings (30 days, 90 days, etc.)
+      # 
+      # IMPORTANT: This implementation uses Microsoft Graph API user.signInActivity property
+      # instead of querying SignInLogs from Log Analytics Workspace (LAW). This resolves 
+      # the issue where compliance checks would fail when LAW retention is set to less than 
+      # a year (e.g., 30 days) because logs get moved to cold storage and become inaccessible
+      # via KQL queries. 
+      #
+      # Benefits of this approach:
+      # - Works regardless of LAW retention policy (30 days, 90 days, 730 days, etc.)
+      # - More reliable data source (Azure AD directly vs. potentially incomplete logs)
+      # - Faster execution (single API call vs. complex LAW query)
+      # - Eliminates dependency on SignInLogs diagnostic settings configuration
       
       # Re-fetch Break Glass accounts with signInActivity data
       $firstBGSignInData = $null
@@ -172,20 +185,40 @@ function Test-BreakGlassAccounts {
       
       # Check first Break Glass account
       if ($null -ne $firstBGSignInData -and $null -ne $firstBGSignInData.lastSignInDateTime) {
-        $lastSignInDate = [DateTime]::Parse($firstBGSignInData.lastSignInDateTime)
-        if ($lastSignInDate -gt $oneYearAgo) {
-          $hasRecentSignIn = $true
-          Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+        try {
+          $lastSignInDate = [DateTime]::Parse($firstBGSignInData.lastSignInDateTime)
+          if ($lastSignInDate -gt $oneYearAgo) {
+            $hasRecentSignIn = $true
+            Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+          } else {
+            Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC (older than 365 days)"
+          }
         }
+        catch {
+          $ErrorList.Add("Failed to parse lastSignInDateTime for first Break Glass account '$FirstBreakGlassUPN': $_")
+          Write-Warning "Error: Failed to parse lastSignInDateTime for first Break Glass account '$FirstBreakGlassUPN': $_"
+        }
+      } else {
+        Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' has no sign-in activity data available"
       }
       
       # Check second Break Glass account
       if ($null -ne $secondBGSignInData -and $null -ne $secondBGSignInData.lastSignInDateTime) {
-        $lastSignInDate = [DateTime]::Parse($secondBGSignInData.lastSignInDateTime)
-        if ($lastSignInDate -gt $oneYearAgo) {
-          $hasRecentSignIn = $true
-          Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+        try {
+          $lastSignInDate = [DateTime]::Parse($secondBGSignInData.lastSignInDateTime)
+          if ($lastSignInDate -gt $oneYearAgo) {
+            $hasRecentSignIn = $true
+            Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+          } else {
+            Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC (older than 365 days)"
+          }
         }
+        catch {
+          $ErrorList.Add("Failed to parse lastSignInDateTime for second Break Glass account '$SecondBreakGlassUPN': $_")
+          Write-Warning "Error: Failed to parse lastSignInDateTime for second Break Glass account '$SecondBreakGlassUPN': $_"
+        }
+      } else {
+        Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' has no sign-in activity data available"
       }
       
       # Set compliance status based on sign-in activity
