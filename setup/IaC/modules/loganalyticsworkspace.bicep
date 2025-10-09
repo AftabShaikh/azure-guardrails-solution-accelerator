@@ -109,8 +109,8 @@ let localizedMessages = case(
 );
 let userData = GuardrailsUserRaw_CL
 | where ReportTime_s == reportTime;
-let validSystemMethods = dynamic(["Fido2", "HardwareOTP"]);
-let validMfaMethods = dynamic(["microsoftAuthenticatorPush", "mobilePhone", "softwareOneTimePasscode", "passKeyDeviceBound", "windowsHelloForBusiness", "fido2SecurityKey", "passKeyDeviceBoundAuthenticator", "passKeyDeviceBoundWindowsHello", "temporaryAccessPass"]);
+let validSystemMethods = dynamic(["Fido2", "HardwareOTP", "PhoneAppNotification", "PhoneAppOTP"]);
+let validMfaMethods = dynamic(["microsoftAuthenticatorPush", "mobilePhone", "softwareOneTimePasscode", "passKeyDeviceBound", "windowsHelloForBusiness", "fido2SecurityKey", "passKeyDeviceBoundAuthenticator", "passKeyDeviceBoundWindowsHello", "temporaryAccessPass", "phoneAppNotification", "phoneAppOTP"]);
 let mfaAnalysis = userData
 | extend 
     isSystemPreferredEnabled = isSystemPreferredAuthenticationMethodEnabled_b,
@@ -208,8 +208,8 @@ let localizedMessages = case(
 );
 let userData = GuardrailsUserRaw_CL
 | where ReportTime_s == reportTime;
-let validSystemMethods = dynamic(["Fido2", "HardwareOTP"]);
-let validMfaMethods = dynamic(["microsoftAuthenticatorPush", "mobilePhone", "softwareOneTimePasscode", "passKeyDeviceBound", "windowsHelloForBusiness", "fido2SecurityKey", "passKeyDeviceBoundAuthenticator", "passKeyDeviceBoundWindowsHello", "temporaryAccessPass"]);
+let validSystemMethods = dynamic(["Fido2", "HardwareOTP", "PhoneAppNotification", "PhoneAppOTP"]);
+let validMfaMethods = dynamic(["microsoftAuthenticatorPush", "mobilePhone", "softwareOneTimePasscode", "passKeyDeviceBound", "windowsHelloForBusiness", "fido2SecurityKey", "passKeyDeviceBoundAuthenticator", "passKeyDeviceBoundWindowsHello", "temporaryAccessPass", "phoneAppNotification", "phoneAppOTP"]);
 let mfaAnalysis = userData
 | extend 
     isSystemPreferredEnabled = isSystemPreferredAuthenticationMethodEnabled_b,
