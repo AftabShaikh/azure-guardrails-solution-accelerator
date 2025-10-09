@@ -322,6 +322,7 @@ EmailsOrOwnerNotConfigured = Defender alert notifications for the subscription {
 AlertNotificationNotConfigured = Defender alert notifications are incorrect. Set the severity to Medium or Low and review the Remediation Guidance.
 AttackPathNotificationNotConfigured = Defender alerts must include attack path notifications. Ensure that the severity is set to Medium or Low for each subscription's alerts, following the guidelines provided in the Remediation Guidance.
 DefenderCompliant = MS Defender for Cloud is enabled for this subscription, and email notifications are properly configured.
+DefenderCompliantSentinel = MS Defender for Cloud is enabled for this subscription. Email notifications are not required because Sentinel is in use.
 
 monitoringChecklist = Monitoring Checklist: Use Cases
 

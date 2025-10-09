@@ -1,3 +1,59 @@
+function Test-SentinelInSubscription {
+    <#
+        Checks if Sentinel is in use within a subscription by looking for:
+        1. Log Analytics Workspaces with approved locks (ReadOnly or CanNotDelete)
+        2. Log Analytics Workspaces with sentinel=true tag
+        3. Sentinel-specific tables in Log Analytics Workspaces
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$SubscriptionId
+    )
+
+    try {
+        # Set context to the subscription
+        Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop | Out-Null
+        
+        # Get all Log Analytics Workspaces in the subscription
+        $workspaces = Get-AzOperationalInsightsWorkspace -ErrorAction SilentlyContinue
+        
+        if (-not $workspaces) {
+            return $false
+        }
+
+        foreach ($workspace in $workspaces) {
+            # Check for approved lock levels
+            $lock = Get-AzResourceLock -ResourceGroupName $workspace.ResourceGroupName -ResourceName $workspace.Name -ResourceType "Microsoft.OperationalInsights/workspaces" -ErrorAction SilentlyContinue
+            if ($lock -and ($lock.Properties.level -eq 'ReadOnly' -or $lock.Properties.level -eq 'CanNotDelete')) {
+                return $true
+            }
+
+            # Check for sentinel=true tag
+            if ($workspace.Tags -and $workspace.Tags.ContainsKey("sentinel") -and ($workspace.Tags["sentinel"].ToString().ToLower() -eq "true")) {
+                return $true
+            }
+
+            # Check for Sentinel tables
+            $sentinelTables = @('SecurityIncident', 'HuntingBookmark', 'SentinelHealth')
+            foreach ($table in $sentinelTables) {
+                try {
+                    $query = "$table | take 0"
+                    $null = Invoke-AzOperationalInsightsQuery -WorkspaceId $workspace.CustomerId -Query $query -ErrorAction Stop
+                    return $true  # If any table exists, Sentinel is in use
+                } catch {
+                    # Table doesn't exist, continue checking
+                }
+            }
+        }
+        
+        return $false
+    } catch {
+        # If any error occurs, assume Sentinel is not in use
+        return $false
+    }
+}
+
 function Get-DefenderForCloudAlerts {
     param (
         [Parameter(Mandatory=$true)]
@@ -34,6 +90,7 @@ function Get-DefenderForCloudAlerts {
         # Initialize
         $isCompliant = $true
         $Comments = ""
+        $sentinelInUse = $false
 
         # find subscription information
         $subId = $subscription.Id
@@ -73,16 +130,22 @@ function Get-DefenderForCloudAlerts {
             $ownerRole = $response.properties.notificationsByRole.roles | Where-Object {$_ -eq "Owner"}
             $ownerState = $response.properties.notificationsByRole.State
 
+            # Check if Sentinel is in use in this subscription
+            $sentinelInUse = Test-SentinelInSubscription -SubscriptionId $subId
+
             # Filter to get required notification types
             $alertNotification = $notificationSources | Where-Object {$_.sourceType -eq "Alert" -and $_.minimalSeverity -in @("Medium","Low")}
             $attackPathNotification = $notificationSources | Where-Object {$_.sourceType -eq "AttackPath" -and $_.minimalRiskLevel -in @("Medium","Low")}
 
-            $emailCount = ($notificationEmails -split ";").Count
+            # CONDITION: Check email requirements only if Sentinel is NOT in use
+            if (-not $sentinelInUse) {
+                $emailCount = ($notificationEmails -split ";").Count
 
-            # CONDITION: Check if there is minimum two emails and owner is also notified
-            if(($emailCount -lt 2) -or ($ownerState -ne "On" -or $ownerRole -ne "Owner")){
-                $isCompliant = $false
-                $Comments = $msgTable.EmailsOrOwnerNotConfigured -f $($subscription.Name)
+                # Check if there is minimum two emails and owner is also notified
+                if(($emailCount -lt 2) -or ($ownerState -ne "On" -or $ownerRole -ne "Owner")){
+                    $isCompliant = $false
+                    $Comments = $msgTable.EmailsOrOwnerNotConfigured -f $($subscription.Name)
+                }
             }
 
             if($null -eq $alertNotification){
@@ -101,7 +164,11 @@ function Get-DefenderForCloudAlerts {
 
         # If it reaches here, then this subscription is compliant
         if ($isCompliant){
-            $Comments = $msgTable.DefenderCompliant
+            if ($sentinelInUse) {
+                $Comments = $msgTable.DefenderCompliantSentinel
+            } else {
+                $Comments = $msgTable.DefenderCompliant
+            }
         }
 
         $C = [PSCustomObject]@{
