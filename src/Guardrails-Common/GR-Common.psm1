@@ -489,50 +489,110 @@ function Check-UpdateAvailable {
         $ReportTime,
         [Parameter(Mandatory = $false)]
         [string]
-        $ResourceGroupName
+        $ResourceGroupName,
+        [Parameter(Mandatory = $false)]
+        [switch]
+        $AllowLegacyFallback
     )
-    #fetches current public version (from repo...maybe should download the zip...)
-    $latestRelease = Invoke-RestMethod 'https://api.github.com/repos/ssc-spc-ccoe-cei/azure-guardrails-solution-accelerator/releases/latest' -Verbose:$false
-    $tagsFileURI = "https://github.com/ssc-spc-ccoe-cei/azure-guardrails-solution-accelerator/raw/{0}/setup/tags.json" -f $latestRelease.name
-    $tags = Invoke-RestMethod $tagsFileURI -Verbose:$false
-
+    
+    # Import secure versioning module
+    Import-Module "$PSScriptRoot/SecureVersioning.psm1" -Force
+    
     if ([string]::IsNullOrEmpty($ResourceGroupName)) {
         $ResourceGroupName = Get-AutomationVariable -Name "ResourceGroupName"
     }
-    $rg=Get-AzResourceGroup -Name $ResourceGroupName 
 
-    $deployedVersion=$rg.Tags["ReleaseVersion"]
-    $currentVersion = $tags.ReleaseVersion
-
-    try {
-        # script version numbers of surrounding characters and then converted to a version object
-        $deployedVersionVersion = [version]::Parse(($deployedVersion -replace '[\w-]+?(\d+?\.\d+?\.\d+?(\.\d+?)?)[\w-]*$','$1'))
-        $currentVersionVersion = [version]::Parse(($currentVersion -replace '[\w-]+?(\d+?\.\d+?\.\d+?(\.\d+?)?)[\w-]*$','$1'))
-    }
-    catch {
-        Write-Error "Error: Failed to convert version numbers to version objects. Error: $_"
-    }
-
-    if ($debug) { Write-Output "Resource Group Tag (deployed version): $deployedVersion; $deployedVersionVersion"}
-    if ($debug) { Write-Output "Latest available version from GitHub: $currentVersion; $currentVersionVersion"}
+    # Get deployed version and check its integrity
+    $rg = Get-AzResourceGroup -Name $ResourceGroupName 
+    $deployedVersion = $rg.Tags["ReleaseVersion"]
     
-    if ($deployedVersionVersion -lt $currentVersionVersion)
-    {
-        $updateNeeded=$true
+    # Check deployed version integrity to detect user tampering
+    $integrityCheck = Test-DeployedVersionIntegrity -ResourceGroupName $ResourceGroupName
+    
+    # Get current version using secure methods
+    $secureVersionInfo = Get-SecureVersionInformation -AllowFallback $AllowLegacyFallback.IsPresent
+    $currentVersion = $secureVersionInfo.ReleaseVersion
+    
+    # Initialize security warnings array
+    $securityWarnings = @()
+    
+    # Add integrity warnings if found
+    if ($integrityCheck.Warnings.Count -gt 0) {
+        $securityWarnings += $integrityCheck.Warnings
+        Write-Warning "Deployed version integrity issues detected: $($integrityCheck.Warnings -join '; ')"
     }
-    elseif(($deployedVersionVersion -eq $currentVersionVersion) -and 
-        ($deployedVersion -match 'beta') -and 
-        ($currentVersion -notmatch 'beta')) {
-        $updateNeeded = $true
+    
+    # Add security warnings from version retrieval
+    if ($secureVersionInfo.SecurityResults.SecurityWarnings.Count -gt 0) {
+        $securityWarnings += $secureVersionInfo.SecurityResults.SecurityWarnings
+        Write-Warning "Version retrieval security warnings: $($secureVersionInfo.SecurityResults.SecurityWarnings -join '; ')"
+    }
+    
+    # Log security level used
+    Write-Information "Version verification security level: $($secureVersionInfo.SecurityResults.VerificationLevel)" -InformationAction Continue
+
+    # Handle case where secure version retrieval failed
+    if (-not $secureVersionInfo.SourceVerified -and -not $AllowLegacyFallback) {
+        Write-Error "Secure version verification failed and legacy fallback is disabled. Cannot safely determine update status."
+        $updateNeeded = $null
+        $versionComparison = "Failed - Security verification failed"
     }
     else {
-        $updateNeeded = $false
+        try {
+            # Parse version numbers for comparison (enhanced error handling)
+            if ([string]::IsNullOrEmpty($deployedVersion)) {
+                Write-Warning "Deployed version is empty or null - this may indicate user error or system corruption"
+                $deployedVersionVersion = [version]"0.0.0"
+                $securityWarnings += "Deployed version is missing"
+            }
+            else {
+                $deployedVersionVersion = [version]::Parse(($deployedVersion -replace '[\w-]+?(\d+?\.\d+?\.\d+?(\.\d+?)?)[\w-]*$','$1'))
+            }
+            
+            if ([string]::IsNullOrEmpty($currentVersion)) {
+                Write-Error "Current version could not be determined securely"
+                throw "Current version unavailable"
+            }
+            
+            $currentVersionVersion = [version]::Parse(($currentVersion -replace '[\w-]+?(\d+?\.\d+?\.\d+?(\.\d+?)?)[\w-]*$','$1'))
+            
+            # Enhanced version comparison logic
+            if ($deployedVersionVersion -lt $currentVersionVersion) {
+                $updateNeeded = $true
+                $versionComparison = "Update available"
+            }
+            elseif(($deployedVersionVersion -eq $currentVersionVersion) -and 
+                ($deployedVersion -match 'beta') -and 
+                ($currentVersion -notmatch 'beta')) {
+                $updateNeeded = $true
+                $versionComparison = "Stable release available for beta"
+            }
+            else {
+                $updateNeeded = $false
+                $versionComparison = "Up to date"
+            }
+        }
+        catch {
+            Write-Error "Error: Failed to convert version numbers to version objects. Error: $_"
+            $updateNeeded = $null
+            $versionComparison = "Failed - Version parsing error"
+        }
     }
+
+    if ($debug) { Write-Output "Resource Group Tag (deployed version): $deployedVersion; Security Level: $($secureVersionInfo.SecurityResults.VerificationLevel)"}
+    if ($debug) { Write-Output "Latest available version from GitHub: $currentVersion; Source: $($secureVersionInfo.SecurityResults.SourceUsed)"}
+    
+    # Enhanced object with security information
     $object = [PSCustomObject]@{ 
         DeployedVersion = $deployedVersion
         AvailableVersion = $currentVersion
-        UpdateNeeded= $updateNeeded
+        UpdateNeeded = $updateNeeded
         ReportTime = $ReportTime
+        SecurityLevel = $secureVersionInfo.SecurityResults.VerificationLevel
+        VerificationSource = $secureVersionInfo.SecurityResults.SourceUsed
+        IntegrityVerified = $secureVersionInfo.SecurityResults.IntegrityVerified
+        SecurityWarnings = ($securityWarnings -join '; ')
+        VersionComparison = $versionComparison
     }
     $JSON = ConvertTo-Json -inputObject $object
 
