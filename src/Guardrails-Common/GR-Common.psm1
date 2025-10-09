@@ -1505,7 +1505,7 @@ function CompareKQLQueries{
 # Function used for V2.0 GR2V7(M) andV1.0  GR3(R) cloud console access
 function Get-allowedLocationCAPCompliance {
     param (
-        [array]$ErrorList,
+        [System.Collections.ArrayList]$ErrorList,
         [string] $IsCompliant,
         [array] $TrustedCountries = @("CA")  # Default to Canada for backward compatibility
     )
@@ -1518,7 +1518,7 @@ function Get-allowedLocationCAPCompliance {
         $locations = $data.value
     }
     catch {
-        $Errorlist.Add("Failed to call Microsoft Graph REST API at URL '$locationsBaseAPIUrl'; returned error message: $_") 
+        $ErrorList.Add("Failed to call Microsoft Graph REST API at URL '$locationsBaseAPIUrl'; returned error message: $_") 
         Write-Warning "Error: Failed to call Microsoft Graph REST API at URL '$locationsBaseAPIUrl'; returned error message: $_"
     }
 
@@ -1530,7 +1530,7 @@ function Get-allowedLocationCAPCompliance {
         $caps = $response.Content.value
     }
     catch {
-        $Errorlist.Add("Failed to call Microsoft Graph REST API at URL '$CABaseAPIUrl'; returned error message: $_")
+        $ErrorList.Add("Failed to call Microsoft Graph REST API at URL '$CABaseAPIUrl'; returned error message: $_")
         Write-Warning "Error: Failed to call Microsoft Graph REST API at URL '$CABaseAPIUrl'; returned error message: $_"
     }
     
