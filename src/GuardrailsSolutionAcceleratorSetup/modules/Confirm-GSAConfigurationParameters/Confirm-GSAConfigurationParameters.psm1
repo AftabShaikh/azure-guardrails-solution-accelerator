@@ -287,7 +287,7 @@ Function Confirm-GSAConfigurationParameters {
         
         # Check for required substring (e.g., "guardrails" in resource group name)
         if (![string]::IsNUllOrEmpty($paramValue) -and $null -ne $paramValidation.RequiredSubstring) {
-            if ($paramValue -notmatch $paramValidation.RequiredSubstring) {
+            if ($paramValue -inotmatch $paramValidation.RequiredSubstring) {
                 Write-Error "Parameter '$paramName' value '$paramValue' must contain the required substring '$($paramValidation.RequiredSubstring)'."
                 break
             }
