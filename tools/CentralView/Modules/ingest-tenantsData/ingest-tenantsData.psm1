@@ -1,3 +1,64 @@
+# Compatibility wrapper function for migrating from OMSIngestionAPI to Azure Monitor Logs Ingestion API
+function Send-OMSAPIIngestionFile {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string] $customerId,
+        [Parameter(Mandatory = $true)]
+        [string] $sharedkey,
+        [Parameter(Mandatory = $true)]
+        [string] $body,
+        [Parameter(Mandatory = $true)]
+        [string] $logType,
+        [Parameter()]
+        $TimeStampField = (Get-Date)
+    )
+    
+    # This function maintains backward compatibility with the deprecated OMSIngestionAPI
+    # while using the HTTP Data Collector API directly until migration to Data Collection Rules is complete
+    
+    try {
+        # Create the method and URI
+        $method = "POST"
+        $contentType = "application/json"
+        $resource = "/api/logs"
+        $rfc1123date = [DateTime]::UtcNow.ToString("r")
+        $contentLength = [System.Text.Encoding]::UTF8.GetBytes($body).Length
+        
+        # Create the signature
+        $xHeaders = "x-ms-date:" + $rfc1123date
+        $stringToHash = $method + "`n" + $contentLength + "`n" + $contentType + "`n" + $xHeaders + "`n" + $resource
+        $bytesToHash = [Text.Encoding]::UTF8.GetBytes($stringToHash)
+        $keyBytes = [Convert]::FromBase64String($sharedkey)
+        $sha256 = New-Object System.Security.Cryptography.HMACSHA256
+        $sha256.Key = $keyBytes
+        $calculatedHash = $sha256.ComputeHash($bytesToHash)
+        $encodedHash = [Convert]::ToBase64String($calculatedHash)
+        $authorization = 'SharedKey {0}:{1}' -f $customerId, $encodedHash
+        
+        # Create the URI
+        $uri = "https://" + $customerId + ".ods.opinsights.azure.com" + $resource + "?api-version=2016-04-01"
+        
+        # Create the headers
+        $headers = @{
+            "Authorization"      = $authorization;
+            "Log-Type"          = $logType;
+            "x-ms-date"         = $rfc1123date;
+            "time-generated-field" = $TimeStampField.ToString();
+        }
+        
+        # Send the data
+        $response = Invoke-RestMethod -Uri $uri -Method $method -ContentType $contentType -Headers $headers -Body $body
+        
+        Write-Verbose "Data sent to Log Analytics workspace successfully. Response: $response"
+        return $response
+        
+    } catch {
+        Write-Error "Failed to send data to Log Analytics workspace: $($_.Exception.Message)"
+        throw
+    }
+}
+
 function get-tenantdata {
     param (
         $WorkSpaceID,

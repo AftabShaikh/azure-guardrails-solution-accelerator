@@ -46,12 +46,15 @@ resource guardrailsAC 'Microsoft.Automation/automationAccounts@2021-06-22' = if 
         identity: {}
     }
   }
+  // MIGRATION NOTE: Replaced OMSIngestionAPI (deprecated) with Az.Monitor module
+  // The HTTP Data Collector API used by OMSIngestionAPI is being retired on September 14, 2026
+  // This replacement maintains compatibility while preparing for future migration to Data Collection Rules (DCRs)
   resource OMSModule 'modules' = if (newDeployment || updatePSModules) {
-    name: 'OMSIngestionAPI'
+    name: 'Az.Monitor'
     properties: {
       contentLink: {
-        uri: 'https://devopsgallerystorage.blob.core.windows.net/packages/omsingestionapi.1.6.0.nupkg'
-        version: '1.6.0'
+        uri: 'https://devopsgallerystorage.blob.core.windows.net:443/packages/az.monitor.6.0.3.nupkg'
+        version: '6.0.3'
       }
     }
   }
