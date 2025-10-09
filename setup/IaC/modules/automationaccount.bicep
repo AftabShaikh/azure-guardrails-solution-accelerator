@@ -343,7 +343,17 @@ resource guardrailsAC 'Microsoft.Automation/automationAccounts@2021-06-22' = if 
     properties: {
       contentLink: {
         uri: '${ModuleBaseURL}/Check-RiskBasedAccess.zip'
-        version: '1.0.3'
+        version: '1.1.0'
+      }
+    }
+  }
+
+  resource module37a 'modules' = if (newDeployment || updatePSModules) {
+    name: 'Check-LocationBasedAccess'
+    properties: {
+      contentLink: {
+        uri: '${ModuleBaseURL}/Check-LocationBasedAccess.zip'
+        version: '1.0.0'
       }
     }
   }

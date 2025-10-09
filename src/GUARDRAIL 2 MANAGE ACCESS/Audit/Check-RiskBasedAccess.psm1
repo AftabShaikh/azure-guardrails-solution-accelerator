@@ -199,26 +199,14 @@ function Get-RiskBasedAccess {
     }
 
 
-    # Check 2: Allowed Location – Conditional Access Policy
-    $PsObjectLocation = Get-allowedLocationCAPCompliance -ErrorList $ErrorList -IsCompliant $IsCompliant
-    $ErrorList = $PsObjectLocation.Errors
-
-    # Combine status
-    if ($IsCompliantPasswordCAP -eq $true -and $PsObjectLocation.ComplianceStatus -eq $true){
+    # Set compliance status and comments based on risk-based CAP result
+    if ($IsCompliantPasswordCAP -eq $true) {
         $IsCompliant = $true
-        $Comments = $msgTable.isCompliant + " " + $msgTable.compliantC1C2
+        $Comments = $msgTable.isCompliant + " " + $msgTable.compliantRiskCAP
     }
-    elseif($PsObjectLocation.ComplianceStatus -eq $true -and $IsCompliantPasswordCAP -eq $false){
+    else {
         $IsCompliant = $false
-        $Comments = $msgTable.isNotCompliant + " " + $msgTable.nonCompliantC1
-    }
-    elseif ($IsCompliantPasswordCAP -eq $true -and $PsObjectLocation.ComplianceStatus -eq $false){
-        $IsCompliant = $false
-        $Comments = $msgTable.isNotCompliant + " " + $msgTable.nonCompliantC2
-    }
-    else{
-        $IsCompliant = $false
-        $Comments = $msgTable.isNotCompliant + " " + $msgTable.nonCompliantC1C2
+        $Comments = $msgTable.isNotCompliant + " " + $msgTable.nonCompliantRiskCAP
     }
 
     $PsObject = [PSCustomObject]@{
