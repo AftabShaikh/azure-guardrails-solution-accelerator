@@ -1506,7 +1506,8 @@ function CompareKQLQueries{
 function Get-allowedLocationCAPCompliance {
     param (
         [array]$ErrorList,
-        [string] $IsCompliant
+        [string] $IsCompliant,
+        [array] $TrustedCountries = @("CA")  # Default to Canada for backward compatibility
     )
 
     # get named locations
@@ -1533,26 +1534,54 @@ function Get-allowedLocationCAPCompliance {
         Write-Warning "Error: Failed to call Microsoft Graph REST API at URL '$CABaseAPIUrl'; returned error message: $_"
     }
     
-    # check that a named location for Canada exists and that a policy exists that uses it
-    $validLocations = @()
+    # check that a named location for trusted countries exists and that a policy exists that uses it
+    $validTrustedLocations = @()
 
     foreach ($location in $locations) {
         #Determine location conditions
-        #get all valid locations: needs to have Canada Only
-        if ($location.countriesAndRegions.Count -eq 1 -and $location.countriesAndRegions[0] -eq "CA") {
-            $validLocations += $location
+        #get all valid locations: should contain only trusted countries
+        if ($location.countriesAndRegions.Count -ge 1) {
+            $isOnlyTrustedCountries = $true
+            foreach ($country in $location.countriesAndRegions) {
+                if ($country -notin $TrustedCountries) {
+                    $isOnlyTrustedCountries = $false
+                    break
+                }
+            }
+            if ($isOnlyTrustedCountries) {
+                $validTrustedLocations += $location
+            }
         }
     }
 
-    $locationBasedPolicies = $caps | Where-Object { $_.conditions.locations.includeLocations -in $validLocations.ID -and $_.state -eq 'enabled' }
+    # Check for Grant-type policies (existing logic): includeLocations with trusted locations
+    $grantLocationBasedPolicies = $caps | Where-Object { 
+        $_.conditions.locations.includeLocations -in $validTrustedLocations.ID -and 
+        $_.state -eq 'enabled' -and
+        $_.grantControls.operator -eq 'OR' -and
+        $_.grantControls.builtInControls -notcontains 'block'
+    }
 
-    if ($validLocations.count -ne 0) {
-        #if there is at least one location with Canada only, we are good. If no Canada Only policy, not compliant.
+    # Check for Block-type policies (new logic): excludeLocations with trusted locations and Block access control
+    $blockLocationBasedPolicies = $caps | Where-Object { 
+        $_.conditions.locations.excludeLocations -in $validTrustedLocations.ID -and 
+        $_.state -eq 'enabled' -and
+        ($_.grantControls.builtInControls -contains 'block' -or $_.grantControls.operator -eq 'AND')
+    }
+
+    # Combine both policy types
+    $locationBasedPolicies = @()
+    if ($grantLocationBasedPolicies) { $locationBasedPolicies += $grantLocationBasedPolicies }
+    if ($blockLocationBasedPolicies) { $locationBasedPolicies += $blockLocationBasedPolicies }
+
+    if ($validTrustedLocations.count -ne 0) {
+        #if there is at least one location with trusted countries only, we are good. If no compliant policy, not compliant.
         # Conditional access Policies
-        # Need a location based policy, for admins (owners, contributors) that uses one of the valid locations above.
-        # If there is no policy or the policy doesn't use one of the locations above, not compliant.
+        # Need a location based policy that either:
+        # 1. Grants access when includeLocations contains trusted locations, OR
+        # 2. Blocks access when excludeLocations contains trusted locations (allowing only trusted locations)
 
-        if (!$locationBasedPolicies) {
+        if (!$locationBasedPolicies -or $locationBasedPolicies.Count -eq 0) {
             #failed. No policies have valid locations.
             $Comments = $msgTable.noCompliantPoliciesfound
             $IsCompliant = $false
@@ -1564,7 +1593,7 @@ function Get-allowedLocationCAPCompliance {
         }      
     }
     else {
-        # Failed. Reason: No locations have only Canada.
+        # Failed. Reason: No locations have only trusted countries.
         $Comments = $msgTable.noLocationsCompliant
         $IsCompliant = $false
     }
