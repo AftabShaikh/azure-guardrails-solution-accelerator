@@ -35,10 +35,29 @@ resource f2 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' 
   properties: {
     category: 'gr_functions'
     displayName: 'gr_data'
-    query: 'let itsgcodes=GRITSGControls_CL | summarize arg_max(TimeGenerated, *) by itsgcode_s;\nGuardrailsCompliance_CL\n| where ControlName_s has ctrlprefix and ReportTime_s == ReportTime and Required_s != tostring(showNonRequired)\n| where TimeGenerated > ago (24h)\n|join kind=inner (itsgcodes) on itsgcode_s\n| project ["Item Name"]=strcat(ItemName_s, iff(Required_s=="False"," (R)", " (M)")), Comments=Comments_s, Status=case(ComplianceStatus_b == true, \'✔️\', ComplianceStatus_b == false, \'❌\', \'➖\'),["ITSG Control"]=itsgcode_s, Remediation=gr_geturl(replace_string(ctrlprefix," ",""),itsgcode_s), Profile=iff(isnotempty(column_ifexists("Profile_d", "")), tostring(toint(column_ifexists("Profile_d", ""))), "")\n'
+    query: '''
+let locale = toscalar(
+    GR_TenantInfo_CL
+    | summarize arg_max(ReportTime_s, *) by TenantDomain_s
+    | project Locale_s
+    | take 1
+);
+let itsgcodes=GRITSGControls_CL | summarize arg_max(TimeGenerated, *) by itsgcode_s;
+GuardrailsCompliance_CL
+| where ControlName_s has ctrlprefix and ReportTime_s == ReportTime and Required_s != tostring(showNonRequired)
+| where TimeGenerated > ago (24h)
+|join kind=inner (itsgcodes) on itsgcode_s
+| project 
+    [case(locale == "fr-CA", "Nom de l'élément", "Item Name")]=strcat(ItemName_s, iff(Required_s=="False"," (R)", " (M)")), 
+    [case(locale == "fr-CA", "Commentaires", "Comments")]=Comments_s, 
+    [case(locale == "fr-CA", "État", "Status")]=case(ComplianceStatus_b == true, '✔️', ComplianceStatus_b == false, '❌', '➖'),
+    [case(locale == "fr-CA", "Contrôle ITSG", "ITSG Control")]=itsgcode_s, 
+    [case(locale == "fr-CA", "Remédiation", "Remediation")]=gr_geturl(replace_string(ctrlprefix," ",""),itsgcode_s), 
+    Profile=iff(isnotempty(column_ifexists("Profile_d", "")), tostring(toint(column_ifexists("Profile_d", ""))), "")
+'''
     functionAlias: 'gr_data'
     functionParameters: 'ctrlprefix:string, ReportTime:string, showNonRequired:string'
-    version: 2
+    version: 3
   }
 }
 resource f1 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' = if ((deployLAW && newDeployment) || updateWorkbook) {
@@ -60,10 +79,30 @@ resource f3 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' 
   properties: {
     category: 'gr_functions'
     displayName: 'gr_data567'
-    query: 'let itsgcodes=GRITSGControls_CL | summarize arg_max(TimeGenerated, *) by itsgcode_s;\nGuardrailsCompliance_CL\n| where ControlName_s has ctrlprefix and ReportTime_s == ReportTime and Required_s != tostring(showNonRequired)\n| where TimeGenerated > ago (24h)\n|join kind=inner (itsgcodes) on itsgcode_s\n| project ["Item Name"]=strcat(ItemName_s, iff(Required_s=="False"," (R)", " (M)")), ["Subscription Name"]=DisplayName_s, Comments=Comments_s, Status=case(ComplianceStatus_b == true, \'✔️\', ComplianceStatus_b == false, \'❌\', \'➖\'),["ITSG Control"]=itsgcode_s, Remediation=gr_geturl(replace_string(ctrlprefix," ",""),itsgcode_s), Profile=iff(isnotempty(column_ifexists("Profile_d", "")), tostring(toint(column_ifexists("Profile_d", ""))), "")\n'
+    query: '''
+let locale = toscalar(
+    GR_TenantInfo_CL
+    | summarize arg_max(ReportTime_s, *) by TenantDomain_s
+    | project Locale_s
+    | take 1
+);
+let itsgcodes=GRITSGControls_CL | summarize arg_max(TimeGenerated, *) by itsgcode_s;
+GuardrailsCompliance_CL
+| where ControlName_s has ctrlprefix and ReportTime_s == ReportTime and Required_s != tostring(showNonRequired)
+| where TimeGenerated > ago (24h)
+|join kind=inner (itsgcodes) on itsgcode_s
+| project 
+    [case(locale == "fr-CA", "Nom de l'élément", "Item Name")]=strcat(ItemName_s, iff(Required_s=="False"," (R)", " (M)")), 
+    [case(locale == "fr-CA", "Nom de l'abonnement", "Subscription Name")]=DisplayName_s, 
+    [case(locale == "fr-CA", "Commentaires", "Comments")]=Comments_s, 
+    [case(locale == "fr-CA", "État", "Status")]=case(ComplianceStatus_b == true, '✔️', ComplianceStatus_b == false, '❌', '➖'),
+    [case(locale == "fr-CA", "Contrôle ITSG", "ITSG Control")]=itsgcode_s, 
+    [case(locale == "fr-CA", "Remédiation", "Remediation")]=gr_geturl(replace_string(ctrlprefix," ",""),itsgcode_s), 
+    Profile=iff(isnotempty(column_ifexists("Profile_d", "")), tostring(toint(column_ifexists("Profile_d", ""))), "")
+'''
     functionAlias: 'gr_data567'
     functionParameters: 'ctrlprefix:string, ReportTime:string, showNonRequired:string'
-    version: 2
+    version: 3
   }
 }
 resource f4 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' = if ((deployLAW && newDeployment) || updateWorkbook) {
@@ -72,10 +111,30 @@ resource f4 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' 
   properties: {
     category: 'gr_functions'
     displayName: 'gr_data11'
-    query: 'let itsgcodes=GRITSGControls_CL | summarize arg_max(TimeGenerated, *) by itsgcode_s;\nGuardrailsCompliance_CL\n| where ControlName_s has ctrlprefix and ReportTime_s == ReportTime and Required_s != tostring(showNonRequired)\n| where TimeGenerated > ago (24h)\n|join kind=inner (itsgcodes) on itsgcode_s\n| project  ["Item Name"]=strcat(ItemName_s, iff(Required_s=="False"," (R)", " (M)")), ["Subscription Name"] = SubscriptionName_s, Comments=Comments_s, Status=case(ComplianceStatus_b == true, \'✔️\', ComplianceStatus_b == false, \'❌\', \'➖\'),["ITSG Control"]=itsgcode_s, Remediation=gr_geturl(replace_string(ctrlprefix," ",""),itsgcode_s), Profile=iff(isnotempty(column_ifexists("Profile_d", "")), tostring(toint(column_ifexists("Profile_d", ""))), "")\n'
+    query: '''
+let locale = toscalar(
+    GR_TenantInfo_CL
+    | summarize arg_max(ReportTime_s, *) by TenantDomain_s
+    | project Locale_s
+    | take 1
+);
+let itsgcodes=GRITSGControls_CL | summarize arg_max(TimeGenerated, *) by itsgcode_s;
+GuardrailsCompliance_CL
+| where ControlName_s has ctrlprefix and ReportTime_s == ReportTime and Required_s != tostring(showNonRequired)
+| where TimeGenerated > ago (24h)
+|join kind=inner (itsgcodes) on itsgcode_s
+| project 
+    [case(locale == "fr-CA", "Nom de l'élément", "Item Name")]=strcat(ItemName_s, iff(Required_s=="False"," (R)", " (M)")), 
+    [case(locale == "fr-CA", "Nom de l'abonnement", "Subscription Name")] = SubscriptionName_s, 
+    [case(locale == "fr-CA", "Commentaires", "Comments")]=Comments_s, 
+    [case(locale == "fr-CA", "État", "Status")]=case(ComplianceStatus_b == true, '✔️', ComplianceStatus_b == false, '❌', '➖'),
+    [case(locale == "fr-CA", "Contrôle ITSG", "ITSG Control")]=itsgcode_s, 
+    [case(locale == "fr-CA", "Remédiation", "Remediation")]=gr_geturl(replace_string(ctrlprefix," ",""),itsgcode_s), 
+    Profile=iff(isnotempty(column_ifexists("Profile_d", "")), tostring(toint(column_ifexists("Profile_d", ""))), "")
+'''
     functionAlias: 'gr_data11'
     functionParameters: 'ctrlprefix:string, ReportTime:string, showNonRequired:string'
-    version: 2
+    version: 3
   }
 }
 resource f5 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' = if ((deployLAW && newDeployment) || updateWorkbook) {
@@ -167,6 +226,85 @@ summary
     functionAlias: 'gr_mfa_evaluation'
     functionParameters: 'ReportTime:string'
     version: 2
+  }
+}
+
+resource f7 'Microsoft.OperationalInsights/workspaces/savedSearches@2020-08-01' = if ((deployLAW && newDeployment) || updateWorkbook) {
+  name: 'gr_localized_strings'
+  parent: guardrailsLogAnalytics
+  properties: {
+    category: 'gr_functions'
+    displayName: 'gr_localized_strings'
+    query: '''
+let locale = toscalar(
+    GR_TenantInfo_CL
+    | summarize arg_max(ReportTime_s, *) by TenantDomain_s
+    | project Locale_s
+    | take 1
+);
+let strings = case(
+    locale == "fr-CA", dynamic({
+        "workbookTitle": "Accélérateur Guardrails",
+        "workbookDescription": "Sélectionnez l'heure du rapport (par défaut, la plus récente). Sélectionnez si les éléments recommandés sont affichés.",
+        "mandatoryRecommended": "(M) = Obligatoire / (R) = Recommandé",
+        "showRecommendedControls": "Afficher les contrôles recommandés",
+        "reportTimeLabel": "Heure du rapport (UTC)",
+        "yes": "Oui",
+        "no": "Non",
+        "guardrail1": "GUARDRAIL 1",
+        "guardrail2": "GUARDRAIL 2", 
+        "guardrail3": "GUARDRAIL 3",
+        "guardrail4": "GUARDRAIL 4",
+        "guardrail5": "GUARDRAIL 5",
+        "guardrail6": "GUARDRAIL 6",
+        "guardrail7": "GUARDRAIL 7",
+        "guardrail8": "GUARDRAIL 8",
+        "guardrail9": "GUARDRAIL 9",
+        "guardrail10": "GUARDRAIL 10",
+        "guardrail11": "GUARDRAIL 11",
+        "guardrail12": "GUARDRAIL 12",
+        "guardrail13": "GUARDRAIL 13",
+        "information": "Information",
+        "itemName": "Nom de l'élément",
+        "comments": "Commentaires",
+        "status": "État",
+        "itsgControl": "Contrôle ITSG",
+        "remediation": "Remédiation"
+    }),
+    dynamic({
+        "workbookTitle": "Guardrails Accelerator",
+        "workbookDescription": "Select the Report Time (Default is latest). Select whether Recommended items are shown.",
+        "mandatoryRecommended": "(M) = Mandatory / (R) = Recommended",
+        "showRecommendedControls": "Show Recommended Controls",
+        "reportTimeLabel": "Report Time (UTC)",
+        "yes": "Yes",
+        "no": "No",
+        "guardrail1": "GUARDRAIL 1",
+        "guardrail2": "GUARDRAIL 2", 
+        "guardrail3": "GUARDRAIL 3",
+        "guardrail4": "GUARDRAIL 4",
+        "guardrail5": "GUARDRAIL 5",
+        "guardrail6": "GUARDRAIL 6",
+        "guardrail7": "GUARDRAIL 7",
+        "guardrail8": "GUARDRAIL 8",
+        "guardrail9": "GUARDRAIL 9",
+        "guardrail10": "GUARDRAIL 10",
+        "guardrail11": "GUARDRAIL 11",
+        "guardrail12": "GUARDRAIL 12",
+        "guardrail13": "GUARDRAIL 13",
+        "information": "Information",
+        "itemName": "Item Name",
+        "comments": "Comments", 
+        "status": "Status",
+        "itsgControl": "ITSG Control",
+        "remediation": "Remediation"
+    })
+);
+print locale, strings
+'''
+    functionAlias: 'gr_localized_strings'
+    functionParameters: ''
+    version: 1
   }
 }
 
