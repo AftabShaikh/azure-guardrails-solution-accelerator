@@ -161,13 +161,27 @@ function Get-RiskBasedAccess {
 
     # validate BG account user group
     $BGAccountUserGroup = $groupMemberList | Where-Object {$_.userPrincipalName -eq $FirstBreakGlassUPN -or $_.userPrincipalName -eq $SecondBreakGlassUPN}
-    if($BGAccountUserGroup.Count -eq 2){
-        $breakGlassUserGroup = $BGAccountUserGroup
+    
+    # Find a group that contains EXACTLY the two break glass accounts and no other members
+    $breakGlassUserGroup = $null
+    $uniqueGroupIdBG = $null
+    
+    if($BGAccountUserGroup.Count -ge 2){
+        # Group by groupId to find groups that have both break glass accounts
+        $groupsWithBothBG = $BGAccountUserGroup | Group-Object groupId | Where-Object { $_.Count -eq 2 }
+        
+        foreach ($groupCandidate in $groupsWithBothBG) {
+            $groupId = $groupCandidate.Name
+            # Check if this group has exactly 2 members (only the break glass accounts)
+            $allMembersInGroup = $groupMemberList | Where-Object { $_.groupId -eq $groupId }
+            if ($allMembersInGroup.Count -eq 2) {
+                # Found a group with exactly the two break glass accounts
+                $breakGlassUserGroup = $groupCandidate.Group
+                $uniqueGroupIdBG = $groupId
+                break
+            }
+        }
     }
-    else{
-        $breakGlassUserGroup = $null
-    }
-    $uniqueGroupIdBG = $breakGlassUserGroup.groupId | select-object -unique
            
     # check for a conditional access policy which meets the requirements
     if ($null -ne $breakGlassUserGroup){
