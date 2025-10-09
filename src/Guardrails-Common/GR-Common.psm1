@@ -1533,13 +1533,14 @@ function Get-allowedLocationCAPCompliance {
         Write-Warning "Error: Failed to call Microsoft Graph REST API at URL '$CABaseAPIUrl'; returned error message: $_"
     }
     
-    # check that a named location for Canada exists and that a policy exists that uses it
+    # check that a named location for Canada OR IP address ranges exists and that a policy exists that uses it
     $validLocations = @()
 
     foreach ($location in $locations) {
         #Determine location conditions
-        #get all valid locations: needs to have Canada Only
-        if ($location.countriesAndRegions.Count -eq 1 -and $location.countriesAndRegions[0] -eq "CA") {
+        #get all valid locations: needs to have Canada Only OR IP address ranges
+        if (($location.countriesAndRegions.Count -eq 1 -and $location.countriesAndRegions[0] -eq "CA") -or 
+            ($null -ne $location.ipRanges -and $location.ipRanges.Count -gt 0)) {
             $validLocations += $location
         }
     }
@@ -1547,7 +1548,7 @@ function Get-allowedLocationCAPCompliance {
     $locationBasedPolicies = $caps | Where-Object { $_.conditions.locations.includeLocations -in $validLocations.ID -and $_.state -eq 'enabled' }
 
     if ($validLocations.count -ne 0) {
-        #if there is at least one location with Canada only, we are good. If no Canada Only policy, not compliant.
+        #if there is at least one location with Canada only or IP address ranges, we are good. If no compliant policy, not compliant.
         # Conditional access Policies
         # Need a location based policy, for admins (owners, contributors) that uses one of the valid locations above.
         # If there is no policy or the policy doesn't use one of the locations above, not compliant.
@@ -1564,7 +1565,7 @@ function Get-allowedLocationCAPCompliance {
         }      
     }
     else {
-        # Failed. Reason: No locations have only Canada.
+        # Failed. Reason: No locations have only Canada or IP address ranges.
         $Comments = $msgTable.noLocationsCompliant
         $IsCompliant = $false
     }
