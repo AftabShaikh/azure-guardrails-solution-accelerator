@@ -147,8 +147,15 @@ function Check-GAUserCountMFARequired {
         $ErrorList.Add($errorMsg)
         Write-Error "Error: $errorMsg"
     }
-    # Get member users UPNs
-    $gaUserList = $gaRoleResponse 
+    # Get member users UPNs - filter to only include users, not groups
+    $gaUserList = @($gaRoleResponse | Where-Object {$_.'@odata.type' -like '*user*'})
+
+    # You may want to include code to confirm that if a group has been given the global admin role, that members (eligible or permanent) have MFA setup
+    $gaGroupList = @($gaRoleResponse | Where-Object {$_.'@odata.type' -like '*group*'})
+    <# pseudo code
+    Get group members, eligible members
+    Check MFA configured for each member found
+    #> 
     # Exclude the breakglass account UPNs from the list
     if ($gaUserList.userPrincipalName -contains $FirstBreakGlassUPN){
         $gaUserList = $gaUserList | Where-Object { $_.userPrincipalName -ne $FirstBreakGlassUPN }
