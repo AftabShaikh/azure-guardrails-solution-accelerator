@@ -80,7 +80,7 @@ function Check-CloudAccountsMFA {
         [string]::IsNullOrEmpty($_.conditions.clientApplications) -and
         # Allow exclusions for Microsoft Entra Connector sync accounts only
         ($_.conditions.users.excludeUsers.Count -eq 0 -or 
-         ($_.conditions.users.excludeUsers | ForEach-Object { $_ -in $syncAccountIds }) -eq $true)
+         ($_.conditions.users.excludeUsers | ForEach-Object { $_ -in $syncAccountIds }) -notcontains $false)
     }
 
     if ($validPolicies.count -ne 0) {
