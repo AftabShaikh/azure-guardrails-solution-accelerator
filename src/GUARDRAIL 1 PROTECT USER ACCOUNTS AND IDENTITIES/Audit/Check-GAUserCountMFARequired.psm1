@@ -9,7 +9,10 @@ function get-MFACount{
     ## *****************************************##
     ## ****** Member user as Global Admin ******##
     ## *****************************************##
-    $memberUsers = $globalAdminUserAccounts | Where-Object { $_.userPrincipalName -notlike "*#EXT#*" }
+    $memberUsers = $globalAdminUserAccounts | Where-Object { 
+        $_.userPrincipalName -notlike "*#EXT#*" -and 
+        $_.userPrincipalName -notlike "Sync_*"  # Exclude Microsoft Entra Connector sync accounts
+    }
 
     # Get GA member users UPNs
     $memberUsersUPNs= $memberUsers | Select-Object userPrincipalName, mail
@@ -155,8 +158,10 @@ function Check-GAUserCountMFARequired {
     }
     if ($gaUserList.userPrincipalName -contains $SecondBreakGlassUPN){
         $gaUserList = $gaUserList | Where-Object { $_.userPrincipalName -ne $SecondBreakGlassUPN }
-
     }
+    # Exclude Microsoft Entra Connector sync accounts from the list
+    # These accounts typically start with "Sync_" and are automatically created for directory synchronization
+    $gaUserList = $gaUserList | Where-Object { $_.userPrincipalName -notlike "Sync_*" }
 
     foreach ($gaUser in $gaUserList) {
         $roleAssignments = [PSCustomObject]@{
