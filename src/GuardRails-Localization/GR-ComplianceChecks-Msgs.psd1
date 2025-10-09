@@ -123,10 +123,15 @@ userNotInGroup = User is not associated with any user group.
 userInGroup = No users without groups
 
 riskBasedConditionalPolicy = Authentication Mechanisms: Risk Based Conditional Access Policies
+locationBasedConditionalPolicy = Authentication Mechanisms: Location Based Conditional Access Policies
 nonCompliantC1= Configure the conditional access policy to force password changes based on user risk.
 nonCompliantC2= Configure the conditional access policy to prevent sign-in's from unapproved named locations.
 nonCompliantC1C2 = Configure the conditional access policies outlined in the remediation guidance.
 compliantC1C2 = Both conditional access policies have been configured.
+nonCompliantRiskCAP = Configure the conditional access policy to force password changes based on user risk.
+compliantRiskCAP = Risk-based conditional access policy has been configured.
+nonCompliantLocationCAP = Configure the conditional access policy to prevent sign-in's from unapproved named locations.
+compliantLocationCAP = Location-based conditional access policy has been configured.
 
 automatedRoleForUsers = Automated Role Reviews: Role Assignments for Users and Global Administrators
 noAutomatedAccessReviewForUsers = There are no automated access reviews configured for Microsoft Entra ID directory roles. Set up an annual access review for a highly privileged role.
