@@ -144,11 +144,14 @@ Function Confirm-GSAConfigurationParameters {
     $paramsValidationTable = @{
         keyVaultName                      = @{
             IsRequired        = $true
-            ValidationPattern = '^[a-z0-9][a-z0-9-]{3,12}$'
+            ValidationPattern = '^[a-z0-9][a-z0-9-]{2,14}$'
+            MaxLengthWithSuffix = 24 # Azure Key Vault max is 24, minus 9 chars for suffix = 15 chars max for base name
         }
         resourcegroup                     = @{
             IsRequired        = $true
-            ValidationPattern = '^[a-z0-9][a-z0-9-_]{2,64}$'
+            ValidationPattern = '^[a-z0-9][a-z0-9-_]{2,80}$'
+            MaxLengthWithSuffix = 90 # Azure Resource Group max is 90, minus 9 chars for suffix = 81 chars max for base name
+            RequiredSubstring = 'guardrails' # Must contain this substring
         }
         region                            = @{
             IsRequired     = $false
@@ -156,15 +159,18 @@ Function Confirm-GSAConfigurationParameters {
         }
         storageaccountName                = @{
             IsRequired        = $true
-            ValidationPattern = '^[a-z0-9][a-z0-9]{2,11}$'
+            ValidationPattern = '^[a-z0-9][a-z0-9]{2,15}$'
+            MaxLengthWithSuffix = 24 # Azure Storage Account max is 24, minus 8 chars for suffix (no hyphen) = 16 chars max for base name
         }
         logAnalyticsworkspaceName         = @{
             IsRequired        = $true
-            ValidationPattern = '^[a-z0-9][a-z0-9-_]{2,51}[a-z0-9]$'
+            ValidationPattern = '^[a-z0-9][a-z0-9-_]{2,53}[a-z0-9]$'
+            MaxLengthWithSuffix = 63 # Azure Log Analytics Workspace max is 63, minus 9 chars for suffix = 54 chars max for base name
         }
         autoMationAccountName             = @{
             IsRequired        = $true
-            ValidationPattern = '^[a-z0-9][a-z0-9-_]{2,40}[a-z0-9]$'
+            ValidationPattern = '^[a-z0-9][a-z0-9-_]{2,39}[a-z0-9]$'
+            MaxLengthWithSuffix = 50 # Azure Automation Account max is 50, minus 9 chars for suffix = 41 chars max for base name
         }
         PBMMPolicyID                      = @{
             IsRequired       = $true
@@ -277,6 +283,27 @@ Function Confirm-GSAConfigurationParameters {
         if (![string]::IsNUllOrEmpty($paramValue) -and $null -ne $paramValidation.ValidationPattern -and $paramValue -inotmatch $paramValidation.ValidationPattern) {
             Write-Error "Parameter '$paramName' value '$paramValue' does not match the expected pattern '$($paramValidation.ValidationPattern)'."
             break
+        }
+        
+        # Check for required substring (e.g., "guardrails" in resource group name)
+        if (![string]::IsNUllOrEmpty($paramValue) -and $null -ne $paramValidation.RequiredSubstring) {
+            if ($paramValue -notmatch $paramValidation.RequiredSubstring) {
+                Write-Error "Parameter '$paramName' value '$paramValue' must contain the required substring '$($paramValidation.RequiredSubstring)'."
+                break
+            }
+        }
+        
+        # Check length constraints considering the suffix that will be added
+        if (![string]::IsNUllOrEmpty($paramValue) -and $null -ne $paramValidation.MaxLengthWithSuffix) {
+            $suffixLength = 9 # Default suffix is '-' + 8 chars from tenant ID
+            if ($paramName -eq 'storageaccountName') {
+                $suffixLength = 8 # Storage account suffix doesn't include hyphen
+            }
+            $finalLength = $paramValue.Length + $suffixLength
+            if ($finalLength -gt $paramValidation.MaxLengthWithSuffix) {
+                Write-Error "Parameter '$paramName' value '$paramValue' (length: $($paramValue.Length)) will exceed the maximum allowed length of $($paramValidation.MaxLengthWithSuffix) characters when the $suffixLength-character suffix is added. Final length would be: $finalLength characters."
+                break
+            }
         }
     }
 
