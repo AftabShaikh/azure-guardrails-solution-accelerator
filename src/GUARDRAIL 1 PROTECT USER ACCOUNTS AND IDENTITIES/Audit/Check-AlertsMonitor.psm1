@@ -278,6 +278,7 @@ function Check-AlertsMonitor {
                 }
                 else {
                     $Comments += $msgTable.noActionGroupsForBGaccts
+                    $ErrorList += "No action groups with configured receivers found for break glass alert rules in resource group: $resourceGroupName"
                     Write-Verbose "Break glass compliance: FALSE - No action groups with receivers found"
                 }
             }
@@ -322,6 +323,7 @@ function Check-AlertsMonitor {
                 }
                 else {
                     $Comments += $msgTable.noActionGroupsForAuditLogs
+                    $ErrorList += "No action groups with configured receivers found for conditional access policy alert rules in resource group: $resourceGroupName"
                     Write-Verbose "Conditional access policy compliance: FALSE - No action groups with receivers found"
                 }
             }
