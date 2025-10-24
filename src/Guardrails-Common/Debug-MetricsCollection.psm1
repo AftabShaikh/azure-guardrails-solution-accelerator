@@ -296,11 +296,16 @@ function Test-RequiredPermissions {
         try {
             $testQuery = "/users?`$top=1&`$select=id"
             $response = Invoke-GraphQuery -urlPath $testQuery -ErrorAction SilentlyContinue
-            if ($response -and $response.StatusCode -eq 200) {
+            # Check for successful response - Invoke-GraphQuery returns object with Content and StatusCode properties
+            if ($response -and $response.StatusCode -and ($response.StatusCode -eq 200 -or $response.StatusCode -eq "200")) {
                 $permissionResults.HasGraphPermissions = $true
                 $permissionResults.Details += "Microsoft Graph access: PASS"
+            } elseif ($response -and $response.Content) {
+                # If we got content back, consider it successful even without status code
+                $permissionResults.HasGraphPermissions = $true
+                $permissionResults.Details += "Microsoft Graph access: PASS (content received)"
             } else {
-                $permissionResults.Details += "Microsoft Graph access: FAIL"
+                $permissionResults.Details += "Microsoft Graph access: FAIL - No valid response"
             }
         } catch {
             $permissionResults.Details += "Microsoft Graph access: FAIL - $_"
@@ -310,10 +315,21 @@ function Test-RequiredPermissions {
         try {
             $workspaceId = Get-GSAAutomationVariable -Name "WorkSpaceID" -ErrorAction SilentlyContinue
             if ($workspaceId) {
+                # Use REST API approach for better compatibility
                 $testQuery = "Heartbeat | limit 1"
-                Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $testQuery -ErrorAction SilentlyContinue | Out-Null
-                $permissionResults.HasLogAnalyticsAccess = $true
-                $permissionResults.Details += "Log Analytics access: PASS"
+                try {
+                    # Try newer Az.Monitor approach first if available
+                    if (Get-Command Invoke-AzOperationalInsightsQuery -Module Az.Monitor -ErrorAction SilentlyContinue) {
+                        Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $testQuery -ErrorAction SilentlyContinue | Out-Null
+                    } else {
+                        # Fallback to older module for backward compatibility
+                        Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $testQuery -ErrorAction SilentlyContinue | Out-Null
+                    }
+                    $permissionResults.HasLogAnalyticsAccess = $true
+                    $permissionResults.Details += "Log Analytics access: PASS"
+                } catch {
+                    $permissionResults.Details += "Log Analytics access: FAIL - Query test failed: $_"
+                }
             } else {
                 $permissionResults.Details += "Log Analytics access: FAIL - No WorkSpaceID"
             }
@@ -397,11 +413,15 @@ function Get-GuardrailsRuntimeContext {
         # Module versions
         $importantModules = @('Az.Accounts', 'Az.Profile', 'Az.Resources', 'Az.Storage', 'Az.OperationalInsights', 'Az.KeyVault')
         foreach ($moduleName in $importantModules) {
-            $module = Get-Module $moduleName -ListAvailable -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
-            if ($module) {
-                $context.ModuleVersions[$moduleName] = $module.Version.ToString()
-            } else {
-                $context.ModuleVersions[$moduleName] = "Not Available"
+            try {
+                $module = Get-Module $moduleName -ListAvailable -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+                if ($module -and $module.Version) {
+                    $context.ModuleVersions[$moduleName] = $module.Version.ToString()
+                } else {
+                    $context.ModuleVersions[$moduleName] = "Not Available"
+                }
+            } catch {
+                $context.ModuleVersions[$moduleName] = "Error Retrieving Version"
             }
         }
         

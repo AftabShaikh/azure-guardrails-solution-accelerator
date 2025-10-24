@@ -2896,6 +2896,12 @@ function Get-AutomationVariablesForDebug {
     [CmdletBinding()]
     param ()
     
+    # Use the existing Get-AutomationAccountVariables from the debug module if available
+    if (Get-Command Get-AutomationAccountVariables -ErrorAction SilentlyContinue) {
+        return Get-AutomationAccountVariables
+    }
+    
+    # Fallback implementation for compatibility
     $variables = @{}
     
     try {
@@ -2918,8 +2924,11 @@ function Get-AutomationVariablesForDebug {
         }
         
         # Add context information
-        $variables['TenantId'] = (Get-AzContext).Tenant.Id
-        $variables['SubscriptionId'] = (Get-AzContext).Subscription.Id
+        $azContext = Get-AzContext
+        if ($azContext) {
+            $variables['TenantId'] = $azContext.Tenant.Id
+            $variables['SubscriptionId'] = $azContext.Subscription.Id
+        }
         $variables['PowerShellVersion'] = $PSVersionTable.PSVersion.ToString()
         
     } catch {

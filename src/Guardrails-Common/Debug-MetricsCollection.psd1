@@ -8,12 +8,13 @@
     Description = 'Enhanced metrics and debugging support module for Azure Compliance as Code (CaC) solution'
     PowerShellVersion = '5.1'
     
-    RequiredModules = @(
-        'Az.Accounts',
-        'Az.Profile',
-        'Az.Resources',
-        'Az.OperationalInsights'
-    )
+    # RequiredModules intentionally commented out to allow import without Az modules in development environments
+    # RequiredModules = @(
+    #     'Az.Accounts',
+    #     'Az.Profile', 
+    #     'Az.Resources',
+    #     'Az.OperationalInsights'
+    # )
     
     FunctionsToExport = @(
         'Add-GuardrailDebugData',
