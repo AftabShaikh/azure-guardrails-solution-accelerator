@@ -1028,14 +1028,13 @@ function Invoke-GraphQuery {
                 $uri = $fullUri -as [uri]
                 $response = Invoke-AzRestMethod -Uri $uri -Method GET -ErrorAction Stop 
                 $data = $response.Content | ConvertFrom-Json
-                $parsedcontent = $data.value
                 $statusCode = $response.StatusCode
                 $success = $true
             }
             catch {
                 $retryCount++
                 if ($retryCount -ge $maxRetries) {
-                    Write-Error "An error occured constructing the URI or while calling Graph query for URI GET '$uri' after $maxRetries attempts: $($_.Exception.Message)"
+                    Write-Error "An error occurred constructing the URI or while calling Graph query for URI GET '$uri' after $maxRetries attempts: $($_.Exception.Message)"
                     return @{
                         Content    = $null
                         StatusCode = $null
@@ -1051,8 +1050,11 @@ function Invoke-GraphQuery {
             $allResults += $data.value
         } else {
             # For endpoints that don't return .value (single object)
-            $allResults = $data
-            break
+            # Return the original response format to maintain compatibility
+            return @{
+                Content    = $data
+                StatusCode = $statusCode
+            }
         }
         # Handle paging
         if ($data.'@odata.nextLink') {
@@ -1062,6 +1064,7 @@ function Invoke-GraphQuery {
         }
     } while ($fullUri)
 
+    # Return paginated results in the expected format
     @{
         Content    = @{ value = $allResults }
         StatusCode = $statusCode
