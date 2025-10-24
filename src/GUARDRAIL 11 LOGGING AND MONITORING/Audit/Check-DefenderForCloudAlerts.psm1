@@ -34,19 +34,75 @@ function Get-DefenderForCloudAlerts {
         # Initialize
         $isCompliant = $true
         $Comments = ""
+        $plansRequiringProtection = @()
 
         # find subscription information
         $subId = $subscription.Id
         Set-AzContext -SubscriptionId $subId
 
-        $defenderPlans = Get-AzSecurityPricing
-        $defenderEnabled = $defenderPlans | Where-Object {$_.PricingTier -eq 'Standard'} #A paid plan should exist on the sub resource
-
-        if(-not $defenderEnabled){
-            $isCompliant = $false
-            $Comments = $msgTable.NotAllSubsHaveDefenderPlans -f $subscription 
+        # Get all resources in the subscription to check what types exist
+        try {
+            $allResources = Get-AzResource -ErrorAction Stop
         }
-        else{
+        catch {
+            $isCompliant = $false
+            $Comments = $msgTable.errorRetrievingResources
+            $ErrorList.Add("Failed to execute the 'Get-AzResource' command for subscription $($subscription.Name): $_")
+        }
+
+        if ($isCompliant) {
+            # Define mapping of Defender plan names to Azure resource types
+            $defenderPlanMapping = @{
+                'VirtualMachines' = @('Microsoft.Compute/virtualMachines')
+                'StorageAccounts' = @('Microsoft.Storage/storageAccounts')
+                'SqlServers' = @('Microsoft.Sql/servers')
+                'AppServices' = @('Microsoft.Web/sites')
+                'Containers' = @('Microsoft.ContainerService/managedClusters', 'Microsoft.ContainerRegistry/registries', 'Microsoft.ContainerInstance/containerGroups')
+            }
+
+            # Count resources by type
+            $resourceCounts = @{}
+            foreach ($planName in $defenderPlanMapping.Keys) {
+                $count = 0
+                foreach ($resourceType in $defenderPlanMapping[$planName]) {
+                    $count += ($allResources | Where-Object {$_.ResourceType -eq $resourceType}).Count
+                }
+                $resourceCounts[$planName] = $count
+            }
+
+            # Get defender plans for the subscription
+            $defenderPlans = Get-AzSecurityPricing
+            $enabledDefenderPlans = $defenderPlans | Where-Object {$_.PricingTier -eq 'Standard'}
+
+            # Check if any resources exist that require Defender protection
+            $plansRequiringProtection = @()
+            $missingProtectionPlans = @()
+
+            foreach ($planName in $defenderPlanMapping.Keys) {
+                $resourceCount = $resourceCounts[$planName]
+                if ($resourceCount -gt 0) {
+                    $plansRequiringProtection += $planName
+                    $planEnabled = $enabledDefenderPlans | Where-Object {$_.Name -eq $planName}
+                    if (-not $planEnabled) {
+                        $missingProtectionPlans += "$planName ($resourceCount resources)"
+                    }
+                }
+            }
+
+            # If there are resources but no protection plans are missing, or no resources at all
+            if ($plansRequiringProtection.Count -eq 0) {
+                # No resources requiring protection found - this is compliant
+                $Comments = $msgTable.DefenderCompliantNoResourcesFound
+            }
+            elseif ($missingProtectionPlans.Count -gt 0) {
+                # Some required protection plans are missing
+                $isCompliant = $false
+                $Comments = $msgTable.DefenderPlansNotEnabledForResources -f ($missingProtectionPlans -join ', ')
+            }
+        }
+
+        # Continue with notification checks only if defender plans are properly configured and resources exist
+        if ($isCompliant -and $plansRequiringProtection.Count -gt 0) {
             $azContext = Get-AzContext
             $token = Get-AzAccessToken -TenantId $azContext.Subscription.TenantId 
             
@@ -99,9 +155,16 @@ function Get-DefenderForCloudAlerts {
 
         }
 
-        # If it reaches here, then this subscription is compliant
+        # Set final compliance message if still compliant
         if ($isCompliant){
-            $Comments = $msgTable.DefenderCompliant
+            if (-not $Comments) {
+                # Default compliant message if no specific message was set
+                if ($plansRequiringProtection.Count -eq 0) {
+                    $Comments = $msgTable.DefenderCompliantNoResourcesFound
+                } else {
+                    $Comments = $msgTable.DefenderCompliant
+                }
+            }
         }
 
         $C = [PSCustomObject]@{
