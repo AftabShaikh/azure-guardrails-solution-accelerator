@@ -1049,8 +1049,9 @@ function Invoke-GraphQuery {
         if ($null -ne $data.value) {
             $allResults += $data.value
         } else {
-            # For endpoints that don't return .value (single object)
-            # Return the original response format to maintain compatibility
+            # For endpoints that don't return .value (single object endpoints)
+            # These don't support pagination, so return immediately with original response format
+            # This maintains compatibility for endpoints like /me or /organization
             return @{
                 Content    = $data
                 StatusCode = $statusCode
