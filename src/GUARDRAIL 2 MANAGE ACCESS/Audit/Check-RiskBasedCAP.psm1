@@ -88,6 +88,8 @@ function Get-RiskBasedCAP {
     )
     $IsCompliant = $false
     [PSCustomObject] $ErrorList = New-Object System.Collections.ArrayList
+    $AdditionalResults = @()
+    $subscriptionId = $null
 
     # Check: Password Changes – Conditional Access Policy (Risk-based)
     $IsCompliantPasswordCAP = $false

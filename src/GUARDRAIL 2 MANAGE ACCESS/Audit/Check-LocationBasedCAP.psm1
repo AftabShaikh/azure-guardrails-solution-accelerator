@@ -16,6 +16,8 @@ function Get-LocationBasedCAP {
     )
     $IsCompliant = $false
     [PSCustomObject] $ErrorList = New-Object System.Collections.ArrayList
+    $AdditionalResults = @()
+    $subscriptionId = $null
 
     # Check: Allowed Location – Conditional Access Policy
     $PsObjectLocation = Get-allowedLocationCAPCompliance -ErrorList $ErrorList -IsCompliant $IsCompliant
