@@ -1,0 +1,245 @@
+// Azure CaC Debug Analytics - KQL Functions
+// Save these as functions in your Log Analytics workspace for easier querying
+
+// Function: GetModulePerformanceSummary
+// Usage: GetModulePerformanceSummary(7d)
+// Description: Returns performance summary for all modules over specified time period
+.create-or-alter function GetModulePerformanceSummary(lookback:timespan) {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where ModuleName_s != "MainRunbook"
+    | summarize 
+        TotalRuns = count(),
+        AvgExecutionTimeSeconds = round(avg(ExecutionTimeSeconds_d), 2),
+        MaxExecutionTimeSeconds = round(max(ExecutionTimeSeconds_d), 2),
+        MinExecutionTimeSeconds = round(min(ExecutionTimeSeconds_d), 2),
+        TotalErrors = sum(ErrorCount_d),
+        ErrorRate = round(100.0 * sumif(1, ErrorCount_d > 0) / count(), 1),
+        TotalGraphCalls = sum(GraphApiCalls_d),
+        AvgResourcesProcessed = round(avg(ResourcesProcessed_d), 0),
+        LastRun = max(TimeGenerated)
+        by ModuleName_s, ControlName_s
+    | extend Status = case(
+        ErrorRate == 0, "✅ Healthy",
+        ErrorRate <= 5, "⚠️ Minor Issues", 
+        ErrorRate <= 20, "🔶 Attention Needed",
+        "❌ Critical Issues")
+    | order by AvgExecutionTimeSeconds desc
+}
+
+// Function: GetModuleErrors  
+// Usage: GetModuleErrors(1d, "Check-AllUserMFARequired")
+// Description: Returns detailed error information for a specific module or all modules
+.create-or-alter function GetModuleErrors(lookback:timespan, moduleName:string = "") {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where ErrorCount_d > 0 or isnotempty(Errors_s)
+    | where iff(moduleName != "", ModuleName_s == moduleName, true)
+    | extend ErrorDetails = iff(isnotempty(Errors_s), 
+        parse_json(Errors_s), 
+        dynamic(["No detailed error information available"]))
+    | mv-expand ErrorDetail = ErrorDetails
+    | project 
+        TimeGenerated, 
+        ModuleName_s, 
+        ControlName_s, 
+        ErrorCount = ErrorCount_d,
+        ErrorDetail = tostring(ErrorDetail),
+        ExecutionTimeSeconds = ExecutionTimeSeconds_d,
+        FailureReason_s
+    | order by TimeGenerated desc
+}
+
+// Function: GetExecutionTrends
+// Usage: GetExecutionTrends(7d, 1h)
+// Description: Returns execution time trends aggregated by time bins
+.create-or-alter function GetExecutionTrends(lookback:timespan, timeBin:timespan) {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where ModuleName_s != "MainRunbook"
+    | summarize 
+        AvgExecutionTime = round(avg(ExecutionTimeSeconds_d), 2),
+        MaxExecutionTime = round(max(ExecutionTimeSeconds_d), 2),
+        TotalRuns = count(),
+        ErrorCount = sum(ErrorCount_d)
+        by ModuleName_s, bin(TimeGenerated, timeBin)
+    | order by TimeGenerated asc
+}
+
+// Function: GetSlowModules
+// Usage: GetSlowModules(1d, 60)
+// Description: Returns modules that exceeded the specified execution time threshold
+.create-or-alter function GetSlowModules(lookback:timespan, thresholdSeconds:real) {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where ExecutionTimeSeconds_d > thresholdSeconds
+    | extend Duration = strcat(round(ExecutionTimeSeconds_d, 1), "s")
+    | project 
+        TimeGenerated,
+        ModuleName_s,
+        ControlName_s, 
+        Duration,
+        GraphApiCalls = GraphApiCalls_d,
+        ResourcesProcessed = ResourcesProcessed_d,
+        ErrorCount = ErrorCount_d
+    | order by ExecutionTimeSeconds_d desc
+}
+
+// Function: GetConfigurationSummary
+// Usage: GetConfigurationSummary()  
+// Description: Returns current automation account configuration
+.create-or-alter function GetConfigurationSummary() {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(1d)
+    | where isnotempty(ResourceGroupName_s)
+    | summarize arg_max(TimeGenerated, *) by TenantId_g, SubscriptionId_g
+    | project 
+        LastUpdated = TimeGenerated,
+        TenantId = TenantId_g,
+        SubscriptionId = SubscriptionId_g,
+        ResourceGroup = ResourceGroupName_s,
+        StorageAccount = StorageAccountName_s,
+        LogAnalyticsWorkspace = WorkSpaceID_g,
+        Locale = GuardRailsLocale_s,
+        CloudUsageProfiles = cloudUsageProfiles_s,
+        PowerShellVersion = PowerShellVersion_s,
+        ContainerName = ContainerName_s,
+        SecurityRetentionDays = securityRetentionDays_s
+}
+
+// Function: GetPermissionIssues
+// Usage: GetPermissionIssues(7d)
+// Description: Identifies potential permission-related problems
+.create-or-alter function GetPermissionIssues(lookback:timespan) {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where Errors_s contains "permission" or Errors_s contains "forbidden" 
+        or Errors_s contains "unauthorized" or Errors_s contains "access denied"
+        or Errors_s contains "403" or Errors_s contains "401"
+    | extend PermissionErrorType = case(
+        Errors_s contains "forbidden" or Errors_s contains "403", "Forbidden (403)",
+        Errors_s contains "unauthorized" or Errors_s contains "401", "Unauthorized (401)", 
+        Errors_s contains "access denied", "Access Denied",
+        "Permission Related")
+    | project 
+        TimeGenerated,
+        ModuleName_s,
+        ControlName_s,
+        PermissionErrorType,
+        ErrorDetails = Errors_s
+    | order by TimeGenerated desc
+}
+
+// Function: GetOverallHealthStatus
+// Usage: GetOverallHealthStatus(1d)
+// Description: Provides overall health assessment of the CaC solution
+.create-or-alter function GetOverallHealthStatus(lookback:timespan) {
+    let ModuleHealth = GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where ModuleName_s != "MainRunbook"
+    | summarize 
+        TotalRuns = count(),
+        FailedRuns = sumif(1, ErrorCount_d > 0),
+        AvgExecutionTime = avg(ExecutionTimeSeconds_d)
+        by ModuleName_s;
+    let OverallStats = GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback) 
+    | where ModuleName_s == "MainRunbook" and ControlName_s == "OverallExecution"
+    | summarize arg_max(TimeGenerated, *);
+    OverallStats
+    | extend 
+        HealthScore = case(
+            FailedModules_d == 0, 100,
+            FailedModules_d <= 2, 90,
+            FailedModules_d <= 5, 75,
+            50),
+        HealthStatus = case(
+            FailedModules_d == 0, "🟢 Excellent", 
+            FailedModules_d <= 2, "🟡 Good",
+            FailedModules_d <= 5, "🟠 Attention Required",
+            "🔴 Critical Issues")
+    | project 
+        LastExecution = TimeGenerated,
+        HealthStatus,
+        HealthScore,
+        TotalModules = TotalModulesProcessed_d,
+        SuccessfulModules = SuccessfulModules_d,
+        FailedModules = FailedModules_d,
+        ModulesWithErrors = ModulesWithErrors_d,
+        TotalExecutionTimeMinutes = round(TotalExecutionTimeSeconds_d / 60, 1),
+        AverageModuleTime = round(AverageModuleExecutionTime_d, 1)
+}
+
+// Function: GetApiUsageAnalysis  
+// Usage: GetApiUsageAnalysis(7d)
+// Description: Analyzes Microsoft Graph API usage patterns
+.create-or-alter function GetApiUsageAnalysis(lookback:timespan) {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where GraphApiCalls_d > 0
+    | summarize 
+        TotalApiCalls = sum(GraphApiCalls_d),
+        AvgApiCalls = round(avg(GraphApiCalls_d), 1),
+        MaxApiCalls = max(GraphApiCalls_d),
+        ExecutionCount = count(),
+        CallsPerSecond = round(sum(GraphApiCalls_d) / sum(ExecutionTimeSeconds_d), 2)
+        by ModuleName_s, ControlName_s
+    | extend ApiUsageLevel = case(
+        AvgApiCalls < 10, "🟢 Low",
+        AvgApiCalls < 50, "🟡 Moderate", 
+        AvgApiCalls < 100, "🟠 High",
+        "🔴 Very High")
+    | order by TotalApiCalls desc
+}
+
+// Function: GetDailyExecutionReport
+// Usage: GetDailyExecutionReport(30d)  
+// Description: Creates daily execution summary for reporting
+.create-or-alter function GetDailyExecutionReport(lookback:timespan) {
+    GuardrailsDebugMetrics_CL
+    | where TimeGenerated >= ago(lookback)
+    | where ModuleName_s == "MainRunbook" and ControlName_s == "OverallExecution"
+    | extend ExecutionDate = format_datetime(TimeGenerated, 'yyyy-MM-dd')
+    | summarize 
+        ExecutionTime = max(TimeGenerated),
+        TotalExecutionMinutes = round(max(TotalExecutionTimeSeconds_d) / 60, 1),
+        TotalModules = max(TotalModulesProcessed_d),
+        SuccessfulModules = max(SuccessfulModules_d), 
+        FailedModules = max(FailedModules_d),
+        ModulesWithErrors = max(ModulesWithErrors_d),
+        OverallStatus = max(OverallExecutionStatus_s)
+        by ExecutionDate
+    | extend 
+        SuccessRate = round(100.0 * SuccessfulModules / TotalModules, 1),
+        DailyStatus = case(
+            FailedModules == 0, "✅ Success",
+            FailedModules <= 2, "⚠️ Minor Issues", 
+            "❌ Issues Detected")
+    | order by ExecutionDate desc
+}
+
+// Usage Examples:
+// 
+// // Get performance summary for last 7 days
+// GetModulePerformanceSummary(7d)
+//
+// // Get errors for specific module in last day  
+// GetModuleErrors(1d, "Check-AllUserMFARequired")
+//
+// // Get modules taking longer than 2 minutes
+// GetSlowModules(1d, 120)  
+//
+// // Get hourly execution trends for last 3 days
+// GetExecutionTrends(3d, 1h)
+//
+// // Get current configuration
+// GetConfigurationSummary()
+//
+// // Check overall health status
+// GetOverallHealthStatus(1d)
+//
+// // Analyze API usage patterns
+// GetApiUsageAnalysis(7d)
+//
+// // Generate daily execution report
+// GetDailyExecutionReport(30d)

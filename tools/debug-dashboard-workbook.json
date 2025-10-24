@@ -1,0 +1,211 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Azure CaC Guardrails - Debug and Metrics Dashboard\n\nThis dashboard provides detailed insights into the execution of Azure Compliance as Code (CaC) guardrails modules, including performance metrics, error tracking, and troubleshooting information.\n\n---"
+      },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "1f40ec1d-4c6f-4b1a-9c8e-2d5f8a7b9c3d",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time Range",
+            "type": 4,
+            "value": {
+              "durationMs": 86400000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 1800000
+                },
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 14400000
+                },
+                {
+                  "durationMs": 43200000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 172800000
+                },
+                {
+                  "durationMs": 259200000
+                },
+                {
+                  "durationMs": 604800000
+                }
+              ]
+            }
+          },
+          {
+            "id": "2a7b8c9d-5e6f-4a1b-8c9d-3e4f5a6b7c8d",
+            "version": "KqlParameterItem/1.0",
+            "name": "ModuleName",
+            "label": "Module Name",
+            "type": 2,
+            "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| distinct ModuleName_s\n| order by ModuleName_s asc",
+            "value": null,
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "showDefault": false
+            },
+            "defaultValue": "value::all"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s == \"MainRunbook\"\n| where ControlName_s == \"OverallExecution\"\n| extend TotalModules = toint(TotalModulesProcessed_d)\n| extend SuccessfulModules = toint(SuccessfulModules_d)\n| extend FailedModules = toint(FailedModules_d)\n| extend ModulesWithErrors = toint(ModulesWithErrors_d)\n| extend TotalExecutionTime = todouble(TotalExecutionTimeSeconds_d)\n| project TimeGenerated, TotalModules, SuccessfulModules, FailedModules, ModulesWithErrors, TotalExecutionTime\n| order by TimeGenerated desc\n| take 1",
+        "size": 4,
+        "title": "Latest Execution Summary",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": {
+            "columnMatch": "Column",
+            "formatter": 1
+          },
+          "leftContent": {
+            "columnMatch": "Value",
+            "formatter": 12,
+            "formatOptions": {
+              "palette": "auto"
+            },
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "style": "decimal",
+                "maximumFractionDigits": 1
+              }
+            }
+          },
+          "showBorder": false
+        }
+      },
+      "customWidth": "50",
+      "name": "executionSummary"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s != \"MainRunbook\"\n| where isnotempty(ModuleName_s)\n{%if ModuleName != \"value::all\"%}\n| where ModuleName_s == '{ModuleName}'\n{%endif%}\n| extend ExecutionTime = todouble(ExecutionTimeSeconds_d)\n| extend ErrorCount = toint(ErrorCount_d)\n| summarize \n    LatestRun = max(TimeGenerated),\n    AvgExecutionTime = avg(ExecutionTime),\n    MaxExecutionTime = max(ExecutionTime),\n    MinExecutionTime = min(ExecutionTime),\n    TotalRuns = count(),\n    TotalErrors = sum(ErrorCount)\n    by ModuleName_s, ControlName_s\n| extend Status = iff(TotalErrors == 0, \"✅ Success\", strcat(\"⚠️ \", TotalErrors, \" Errors\"))\n| project Module = ModuleName_s, Control = ControlName_s, Status, TotalRuns, AvgExecutionTime = round(AvgExecutionTime, 2), MaxExecutionTime = round(MaxExecutionTime, 2), LatestRun\n| order by AvgExecutionTime desc",
+        "size": 0,
+        "title": "Module Performance Overview",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "customWidth": "50",
+      "name": "modulePerformance"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s != \"MainRunbook\"\n| where ErrorCount_d > 0 or isnotempty(Errors_s)\n{%if ModuleName != \"value::all\"%}\n| where ModuleName_s == '{ModuleName}'\n{%endif%}\n| extend ErrorDetails = iff(isnotempty(Errors_s), Errors_s, \"No error details available\")\n| project TimeGenerated, ModuleName_s, ControlName_s, ErrorCount_d, ErrorDetails\n| order by TimeGenerated desc",
+        "size": 0,
+        "title": "Recent Errors",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "recentErrors"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s != \"MainRunbook\"\n{%if ModuleName != \"value::all\"%}\n| where ModuleName_s == '{ModuleName}'\n{%endif%}\n| extend ExecutionTime = todouble(ExecutionTimeSeconds_d)\n| summarize AvgExecutionTime = avg(ExecutionTime) by ModuleName_s, bin(TimeGenerated, 1h)\n| render timechart",
+        "size": 0,
+        "title": "Execution Time Trends (Hourly Average)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "customWidth": "50",
+      "name": "executionTrends"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s != \"MainRunbook\"\n{%if ModuleName != \"value::all\"%}\n| where ModuleName_s == '{ModuleName}'\n{%endif%}\n| summarize ErrorCount = sumif(toint(ErrorCount_d), toint(ErrorCount_d) > 0) by ControlName_s\n| where ErrorCount > 0\n| render columnchart",
+        "size": 0,
+        "title": "Errors by Guardrail Control",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "customWidth": "50",
+      "name": "errorsByControl"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s != \"MainRunbook\"\n{%if ModuleName != \"value::all\"%}\n| where ModuleName_s == '{ModuleName}'\n{%endif%}\n| extend ExecutionTime = todouble(ExecutionTimeSeconds_d)\n| extend ComplianceStatus = tostring(ComplianceStatus_s)\n| where isnotempty(ComplianceStatus)\n| project TimeGenerated, ModuleName_s, ControlName_s, ComplianceStatus, ExecutionTime, ResourcesProcessed_d, GraphApiCalls_d\n| order by TimeGenerated desc",
+        "size": 0,
+        "title": "Detailed Module Execution Log",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "detailedLog"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Automation Account Configuration\n\nThe following queries show automation account variables and configuration details for troubleshooting."
+      },
+      "name": "configTitle"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "GuardrailsDebugMetrics_CL\n| where TimeGenerated {TimeRange}\n| where ModuleName_s != \"MainRunbook\"\n| where isnotempty(ResourceGroupName_s)\n| summarize arg_max(TimeGenerated, *) by TenantId_g, SubscriptionId_g\n| project TenantId = TenantId_g, SubscriptionId = SubscriptionId_g, ResourceGroup = ResourceGroupName_s, StorageAccount = StorageAccountName_s, Locale = GuardRailsLocale_s, CloudProfiles = cloudUsageProfiles_s, PowerShellVersion = PowerShellVersion_s\n| order by TimeGenerated desc",
+        "size": 0,
+        "title": "Current Configuration",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "configuration"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Troubleshooting Queries\n\nUse these queries for common troubleshooting scenarios:\n\n### Find modules taking longer than 60 seconds:\n```kusto\nGuardrailsDebugMetrics_CL\n| where ExecutionTimeSeconds_d > 60\n| project TimeGenerated, ModuleName_s, ExecutionTimeSeconds_d\n| order by ExecutionTimeSeconds_d desc\n```\n\n### Check for permission-related errors:\n```kusto\nGuardrailsDebugMetrics_CL\n| where Errors_s contains \"permission\" or Errors_s contains \"forbidden\" or Errors_s contains \"unauthorized\"\n| project TimeGenerated, ModuleName_s, Errors_s\n```\n\n### Find modules with high Graph API call counts:\n```kusto\nGuardrailsDebugMetrics_CL\n| where GraphApiCalls_d > 100\n| project TimeGenerated, ModuleName_s, GraphApiCalls_d\n| order by GraphApiCalls_d desc\n```"
+      },
+      "name": "troubleshootingGuide"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": []
+}
