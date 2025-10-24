@@ -2798,7 +2798,7 @@ function Get-SubscriptionOwnerCount {
         $ownerAssignments = Get-AzRoleAssignment -Scope "/subscriptions/$SubscriptionId" -RoleDefinitionId $ownerRoleId -ErrorAction Stop
         
         # Count unique owners (filter out duplicates and service principals if needed)
-        $uniqueOwners = $ownerAssignments | Where-Object { $_.ObjectType -eq 'User' } | Select-Object -Unique ObjectId
+        $uniqueOwners = $ownerAssignments | Where-Object { $_.ObjectType -eq 'User' } | Sort-Object ObjectId -Unique
         
         return $uniqueOwners.Count
     }
