@@ -1010,19 +1010,65 @@ function Invoke-GraphQuery {
         $urlPath
     )
 
-    try {
-        $uri = "https://graph.microsoft.com/v1.0$urlPath" -as [uri]
-        
-        $response = Invoke-AzRestMethod -Uri $uri -Method GET -ErrorAction Stop
+    [string]$baseUri = "https://graph.microsoft.com/v1.0"
+    $fullUri = "$baseUri$urlPath" 
+    $allResults = @()
+    $statusCode = $null
+    $pageCount = 0
+    $maxRetries = 3
+    $retryDelaySeconds = 5
 
-    }
-    catch {
-        Write-Error "An error occured constructing the URI or while calling Graph query for URI GET '$uri': $($_.Exception.Message)"
-    }
-    
+    do {
+        $retryCount = 0
+        $success = $false
+        $pageCount++
+        
+        do {
+            try {
+                $uri = $fullUri -as [uri]
+                $response = Invoke-AzRestMethod -Uri $uri -Method GET -ErrorAction Stop 
+                $data = $response.Content | ConvertFrom-Json
+                $statusCode = $response.StatusCode
+                $success = $true
+            }
+            catch {
+                $retryCount++
+                if ($retryCount -ge $maxRetries) {
+                    Write-Error "An error occurred constructing the URI or while calling Graph query for URI GET '$uri' after $maxRetries attempts: $($_.Exception.Message)"
+                    return @{
+                        Content    = $null
+                        StatusCode = $null
+                    }
+                } else {
+                    Write-Warning "Transient error calling Graph API: $($_.Exception.Message). Retrying in $retryDelaySeconds seconds... (Attempt $retryCount of $maxRetries)"
+                    Start-Sleep -Seconds $retryDelaySeconds
+                }
+            }
+        } while (-not $success -and $retryCount -lt $maxRetries)
+
+        if ($null -ne $data.value) {
+            $allResults += $data.value
+        } else {
+            # For endpoints that don't return .value (single object endpoints)
+            # These don't support pagination, so return immediately with original response format
+            # This maintains compatibility for endpoints like /me or /organization
+            return @{
+                Content    = $data
+                StatusCode = $statusCode
+            }
+        }
+        # Handle paging
+        if ($data.'@odata.nextLink') {
+            $fullUri = $data.'@odata.nextLink'
+        } else {
+            $fullUri = $null
+        }
+    } while ($fullUri)
+
+    # Return paginated results in the expected format
     @{
-        Content    = $response.Content | ConvertFrom-Json
-        StatusCode = $response.StatusCode
+        Content    = @{ value = $allResults }
+        StatusCode = $statusCode
     }
 }
 
