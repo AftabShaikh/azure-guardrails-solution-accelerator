@@ -2764,3 +2764,176 @@ GuardrailsUserRaw_CL
     
     return $ErrorList
 }
+
+# Enhanced debugging and metrics support functions
+
+function Add-GuardrailDebugData {
+    <#
+    .SYNOPSIS
+    Collects and sends debug/metrics data to Log Analytics for troubleshooting and performance monitoring.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [hashtable] $DebugData,
+        
+        [Parameter(Mandatory = $true)]
+        [string] $WorkSpaceID,
+        
+        [Parameter(Mandatory = $true)]
+        [string] $WorkspaceKey,
+        
+        [Parameter(Mandatory = $true)]
+        [string] $ReportTime,
+        
+        [Parameter(Mandatory = $true)]
+        [string] $ModuleName,
+        
+        [Parameter(Mandatory = $true)]
+        [string] $ControlName,
+        
+        [Parameter(Mandatory = $false)]
+        [string] $LogType = "GuardrailsDebugMetrics"
+    )
+    
+    try {
+        # Create standardized debug record
+        $debugRecord = [PSCustomObject]@{
+            ReportTime = $ReportTime
+            ModuleName = $ModuleName
+            ControlName = $ControlName
+            TenantId = (Get-AzContext).Tenant.Id
+            SubscriptionId = (Get-AzContext).Subscription.Id
+            Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        }
+        
+        # Add all debug data as properties
+        foreach ($key in $DebugData.Keys) {
+            $value = $DebugData[$key]
+            # Convert arrays and complex objects to JSON strings for Log Analytics
+            if ($value -is [array] -or $value -is [hashtable]) {
+                $value = $value | ConvertTo-Json -Compress -Depth 3
+            }
+            $debugRecord | Add-Member -MemberType NoteProperty -Name $key -Value $value
+        }
+        
+        # Send to Log Analytics
+        New-LogAnalyticsData -Data @($debugRecord) -WorkSpaceID $WorkSpaceID -WorkSpaceKey $WorkspaceKey -LogType $LogType
+        
+        Write-Verbose "Debug data sent for module: $ModuleName"
+        
+    } catch {
+        Write-Warning "Failed to send debug data for module $ModuleName : $_"
+        # Don't throw - debug logging should not break the main process
+    }
+}
+
+function Start-ModuleMetricsCollection {
+    <#
+    .SYNOPSIS
+    Starts performance metrics collection for a module
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string] $ModuleName,
+        
+        [Parameter(Mandatory = $true)]
+        [string] $ControlName
+    )
+    
+    $context = @{
+        ModuleName = $ModuleName
+        ControlName = $ControlName
+        StartTime = Get-Date
+        StartTimeString = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        GraphApiCalls = 0
+        ResourcesProcessed = 0
+        ErrorCount = 0
+        WarningCount = 0
+        PermissionsChecked = @()
+        AutomationVariables = @{}
+        Errors = @()
+        Warnings = @()
+        AdditionalMetrics = @{}
+    }
+    
+    Write-Verbose "Started metrics collection for module: $ModuleName"
+    return $context
+}
+
+function Stop-ModuleMetricsCollection {
+    <#
+    .SYNOPSIS
+    Stops metrics collection and returns collected data
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [hashtable] $MetricsContext
+    )
+    
+    $MetricsContext.Stopwatch.Stop()
+    $MetricsContext.EndTime = Get-Date
+    $MetricsContext.EndTimeString = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $MetricsContext.ExecutionTimeMs = $MetricsContext.Stopwatch.ElapsedMilliseconds
+    $MetricsContext.ExecutionTimeSeconds = [Math]::Round($MetricsContext.Stopwatch.ElapsedMilliseconds / 1000, 2)
+    
+    # Remove the stopwatch object as it can't be serialized
+    $MetricsContext.Remove('Stopwatch')
+    
+    Write-Verbose "Stopped metrics collection for module: $($MetricsContext.ModuleName) - Duration: $($MetricsContext.ExecutionTimeSeconds)s"
+    
+    return $MetricsContext
+}
+
+function Get-AutomationVariablesForDebug {
+    <#
+    .SYNOPSIS
+    Retrieves automation variables for debugging (non-sensitive ones only)
+    #>
+    [CmdletBinding()]
+    param ()
+    
+    # Use the existing Get-AutomationAccountVariables from the debug module if available
+    if (Get-Command Get-AutomationAccountVariables -ErrorAction SilentlyContinue) {
+        return Get-AutomationAccountVariables
+    }
+    
+    # Fallback implementation for compatibility
+    $variables = @{}
+    
+    try {
+        # Common automation variables to collect (non-sensitive)
+        $variableNames = @(
+            'ResourceGroupName', 'StorageAccountName', 'DepartmentNumber',
+            'CBSSubscriptionName', 'GuardRailsLocale', 'securityRetentionDays',
+            'cloudUsageProfiles', 'LogType', 'ContainerName'
+        )
+        
+        foreach ($varName in $variableNames) {
+            try {
+                $value = Get-GSAAutomationVariable -Name $varName -ErrorAction SilentlyContinue
+                if ($null -ne $value) {
+                    $variables[$varName] = $value
+                }
+            } catch {
+                $variables[$varName] = "ERROR_RETRIEVING_VALUE"
+            }
+        }
+        
+        # Add context information
+        $azContext = Get-AzContext
+        if ($azContext) {
+            $variables['TenantId'] = $azContext.Tenant.Id
+            $variables['SubscriptionId'] = $azContext.Subscription.Id
+        }
+        $variables['PowerShellVersion'] = $PSVersionTable.PSVersion.ToString()
+        
+    } catch {
+        Write-Warning "Failed to retrieve automation variables: $_"
+    }
+    
+    return $variables
+}

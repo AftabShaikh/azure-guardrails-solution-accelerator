@@ -234,6 +234,23 @@ Write-Output "Fetching user raw data complete."
 Write-Output "Starting modules loop."
 $cloudUsageProfilesString = $cloudUsageProfiles -join ','
 $moduleCount = 0
+
+# Debug and metrics collection flag - can be controlled via automation variable
+$enableDebugCollection = $false
+try {
+    $debugSetting = Get-GSAAutomationVariable -Name "EnableDebugMetrics" -ErrorAction SilentlyContinue
+    if ($debugSetting -eq "true" -or $debugSetting -eq $true) {
+        $enableDebugCollection = $true
+        Write-Output "Debug metrics collection enabled."
+    }
+} catch {
+    # Debug collection disabled if variable not found or error occurs
+}
+
+# Collect overall execution metrics
+$overallStartTime = Get-Date
+$moduleExecutionSummary = @()
+
 foreach ($module in $modules) {
     $moduleCount++
     if ($module.Status -eq "Enabled") {
@@ -269,6 +286,22 @@ foreach ($module in $modules) {
         Write-Output "Running module with script: $module.Script"
 
         try {
+            # Start metrics collection for this module if debug is enabled
+            $metricsContext = $null
+            if ($enableDebugCollection) {
+                $metricsContext = Start-ModuleMetricsCollection -ModuleName $module.modulename -ControlName $module.Control
+                
+                # Collect automation variables for this module
+                $metricsContext.AutomationVariables = Get-AutomationVariablesForDebug
+                $metricsContext.ModuleConfig = @{
+                    Status = $module.Status
+                    Required = $module.Required
+                    Profiles = $module.Profiles
+                    ModuleType = $module.ModuleType
+                    Script = $module.Script -replace $WorkspaceKey, '***' # Sanitize for logging
+                }
+            }
+            
             Write-Output "Invoking Script for $($module.modulename)"
             $results = $NewScriptBlock.Invoke()
             #Write-Output "Result for invoking is $($results.ComplianceResults)" 
@@ -291,6 +324,45 @@ foreach ($module in $modules) {
             }
 
             Write-Output "Script running is done for $($module.modulename)"
+            
+            # Complete metrics collection if debug is enabled
+            if ($enableDebugCollection -and $metricsContext) {
+                try {
+                    # Add execution results to metrics
+                    if ($results.ComplianceResults) {
+                        $metricsContext.AdditionalMetrics['ComplianceResultsCount'] = if ($results.ComplianceResults -is [array]) { $results.ComplianceResults.Count } else { 1 }
+                        $metricsContext.AdditionalMetrics['ComplianceStatus'] = if ($results.ComplianceResults.ComplianceStatus) { $results.ComplianceResults.ComplianceStatus } else { 'Unknown' }
+                    }
+                    
+                    if ($results.Errors) {
+                        $metricsContext.ErrorCount = $results.Errors.Count
+                        $metricsContext.Errors = $results.Errors | Select-Object -First 5  # Limit to first 5 errors
+                    }
+                    
+                    if ($results.AdditionalResults) {
+                        $metricsContext.AdditionalMetrics['AdditionalResultsCount'] = $results.AdditionalResults.count
+                        $metricsContext.AdditionalMetrics['AdditionalResultsLogType'] = $results.AdditionalResults.logType
+                    }
+                    
+                    # Stop metrics collection and get final data
+                    $finalMetrics = Stop-ModuleMetricsCollection -MetricsContext $metricsContext
+                    
+                    # Send debug data to Log Analytics
+                    Add-GuardrailDebugData -DebugData $finalMetrics -WorkSpaceID $WorkSpaceID -WorkspaceKey $WorkspaceKey -ReportTime $ReportTime -ModuleName $module.modulename -ControlName $module.Control
+                    
+                    # Add to execution summary
+                    $moduleExecutionSummary += @{
+                        ModuleName = $module.modulename
+                        Control = $module.Control
+                        ExecutionTimeSeconds = $finalMetrics.ExecutionTimeSeconds
+                        Status = if ($results.Errors -and $results.Errors.Count -gt 0) { "CompletedWithErrors" } else { "Success" }
+                        ErrorCount = $finalMetrics.ErrorCount
+                    }
+                    
+                } catch {
+                    Write-Warning "Failed to collect debug metrics for module $($module.modulename): $_"
+                }
+            }
 
             # Clear memory after each module
             $results = $null
@@ -299,6 +371,7 @@ foreach ($module in $modules) {
             $variables = $null
             $secrets = $null
             $localVariables = $null
+            $metricsContext = $null
             
             # Force garbage collection every 3 modules
             if ($moduleCount % 3 -eq 0) {
@@ -310,10 +383,34 @@ foreach ($module in $modules) {
         }
         catch {
             Write-Output "Caught error while invoking result is $($results.Errors)" 
-            $sanitizedScriptblock = $($ExecutionContext.InvokeCommand.ExpandString(($moduleScript -ireplace '\$workspaceKey', '***')))
+            $sanitizedScriptblock = $($ExecutionContext.InvokeCommand.ExpandString(($module.Script -ireplace '\$workspaceKey', '***')))
             
             Add-LogEntry 'Error' "Failed to invoke the module execution script for module '$($module.moduleName)', script '$sanitizedScriptblock' with error: $_" -workspaceGuid $WorkSpaceID -workspaceKey $WorkspaceKey -moduleName main
             Write-Error "Failed to invoke the module execution script for module '$($module.moduleName)', script '$sanitizedScriptblock' with error: $_"
+            
+            # Collect debug data for failed module if debug is enabled
+            if ($enableDebugCollection -and $metricsContext) {
+                try {
+                    $metricsContext.ErrorCount = 1
+                    $metricsContext.Errors = @($_.Exception.Message)
+                    $metricsContext.AdditionalMetrics['FailureReason'] = 'ModuleExecutionFailure'
+                    $metricsContext.AdditionalMetrics['ErrorDetails'] = $_.Exception.Message
+                    
+                    $finalMetrics = Stop-ModuleMetricsCollection -MetricsContext $metricsContext
+                    Add-GuardrailDebugData -DebugData $finalMetrics -WorkSpaceID $WorkSpaceID -WorkspaceKey $WorkspaceKey -ReportTime $ReportTime -ModuleName $module.modulename -ControlName $module.Control
+                    
+                    # Add to execution summary
+                    $moduleExecutionSummary += @{
+                        ModuleName = $module.modulename
+                        Control = $module.Control
+                        ExecutionTimeSeconds = $finalMetrics.ExecutionTimeSeconds
+                        Status = "Failed"
+                        ErrorCount = 1
+                    }
+                } catch {
+                    Write-Warning "Failed to collect debug metrics for failed module $($module.modulename): $_"
+                }
+            }
         }
     }
     else {
@@ -322,6 +419,34 @@ foreach ($module in $modules) {
 }
 
 Add-LogEntry 'Information' "Completed execution of main runbook" -workspaceGuid $WorkSpaceID -workspaceKey $WorkspaceKey -moduleName main -additionalValues @{reportTime = $ReportTime; locale = $locale }
+
+# Send overall execution summary if debug collection is enabled
+if ($enableDebugCollection) {
+    try {
+        $overallEndTime = Get-Date
+        $totalExecutionTime = ($overallEndTime - $overallStartTime).TotalSeconds
+        
+        $overallSummary = @{
+            TotalExecutionTimeSeconds = [Math]::Round($totalExecutionTime, 2)
+            TotalModulesProcessed = $moduleExecutionSummary.Count
+            SuccessfulModules = ($moduleExecutionSummary | Where-Object { $_.Status -eq 'Success' }).Count
+            FailedModules = ($moduleExecutionSummary | Where-Object { $_.Status -eq 'Failed' }).Count
+            ModulesWithErrors = ($moduleExecutionSummary | Where-Object { $_.Status -eq 'CompletedWithErrors' }).Count
+            AverageModuleExecutionTime = if ($moduleExecutionSummary.Count -gt 0) { [Math]::Round(($moduleExecutionSummary | Measure-Object ExecutionTimeSeconds -Average).Average, 2) } else { 0 }
+            LongestRunningModule = if ($moduleExecutionSummary.Count -gt 0) { ($moduleExecutionSummary | Sort-Object ExecutionTimeSeconds -Descending | Select-Object -First 1).ModuleName } else { 'None' }
+            ExecutionSummaryByModule = $moduleExecutionSummary
+            OverallExecutionStatus = if (($moduleExecutionSummary | Where-Object { $_.Status -eq 'Failed' }).Count -eq 0) { 'Success' } else { 'CompletedWithFailures' }
+        }
+        
+        Add-GuardrailDebugData -DebugData $overallSummary -WorkSpaceID $WorkSpaceID -WorkspaceKey $WorkspaceKey -ReportTime $ReportTime -ModuleName "MainRunbook" -ControlName "OverallExecution"
+        
+        Write-Output "Debug Summary: Executed $($moduleExecutionSummary.Count) modules in $([Math]::Round($totalExecutionTime, 2)) seconds"
+        Write-Output "Success: $($overallSummary.SuccessfulModules), Failed: $($overallSummary.FailedModules), With Errors: $($overallSummary.ModulesWithErrors)"
+        
+    } catch {
+        Write-Warning "Failed to send overall execution summary: $_"
+    }
+}
 
 # SIG # Begin signature block
 # MIInqgYJKoZIhvcNAQcCoIInmzCCJ5cCAQExDzANBglghkgBZQMEAgEFADB5Bgor
