@@ -1,3 +1,28 @@
+function Get-SubscriptionOwnerCount {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$SubscriptionId
+    )
+    
+    # Azure built-in Owner role ID (constant across all Azure tenants)
+    $ownerRoleId = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
+    
+    try {
+        # Get role assignments for the subscription scope for Owner role
+        $ownerAssignments = Get-AzRoleAssignment -Scope "/subscriptions/$SubscriptionId" -RoleDefinitionId $ownerRoleId -ErrorAction Stop
+        
+        # Count unique owners (filter out duplicates and service principals if needed)
+        $uniqueOwners = $ownerAssignments | Where-Object { $_.ObjectType -eq 'User' } | Select-Object -Unique ObjectId
+        
+        return $uniqueOwners.Count
+    }
+    catch {
+        # If we can't get the owner count, assume 1 (conservative approach)
+        Write-Warning "Unable to retrieve subscription owner count: $_"
+        return 1
+    }
+}
+
 function Get-DefenderForCloudAlerts {
     param (
         [Parameter(Mandatory=$true)]
@@ -79,8 +104,16 @@ function Get-DefenderForCloudAlerts {
 
             $emailCount = ($notificationEmails -split ";").Count
 
-            # CONDITION: Check if there is minimum two emails and owner is also notified
-            if(($emailCount -lt 2) -or ($ownerState -ne "On" -or $ownerRole -ne "Owner")){
+            # Get subscription owner count for enhanced validation
+            $ownerCount = Get-SubscriptionOwnerCount -SubscriptionId $subId
+            
+            # CONDITION: Check if there are minimum two contacts
+            # Either: 2+ emails, or owner notifications enabled with 2+ owners, or 1+ email + owner notifications with 1+ owner
+            $hasOwnerNotification = ($ownerState -eq "On" -and $ownerRole -eq "Owner")
+            $ownerContactCount = if ($hasOwnerNotification) { $ownerCount } else { 0 }
+            $totalContactCount = $emailCount + $ownerContactCount
+            
+            if ($totalContactCount -lt 2) {
                 $isCompliant = $false
                 $Comments = $msgTable.EmailsOrOwnerNotConfigured -f $($subscription.Name)
             }
