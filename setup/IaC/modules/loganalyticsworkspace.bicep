@@ -99,7 +99,9 @@ let localizedMessages = case(
         "evaluationError": "Erreur d'évaluation: {0}",
         "dataCollectedForAnalysis": "Données collectées pour {0} utilisateurs. L'analyse détaillée de la conformité AMF sera effectuée dans le classeur.",
         "guestUsersExcluded": "Comptes invités exclus (présumés conformes via paramètres d'accès inter-locataires): {0}",
-        "nativeAndGuestCompliant": "Tous les comptes natifs ont l'AMF configurée. Comptes invités ({0}) présumés conformes via l'accès inter-locataires."
+        "nativeAndGuestCompliant": "Tous les comptes natifs ({0}) ont l'AMF configurée. Comptes invités ({1}) présumés conformes via l'accès inter-locataires.",
+        "nativeUsersWithoutMFA": "{0} utilisateurs natifs n'ont pas d'AMF appropriée configurée sur {1} utilisateurs natifs totaux",
+        "guestUsersSuffix": ". Comptes invités ({0}) présumés conformes via l'accès inter-locataires."
     }),
     dynamic({
         "allUsersHaveMFA": "Native user accounts have been identified, and all users accounts have 2+ methods of authentication enabled.",
@@ -108,7 +110,9 @@ let localizedMessages = case(
         "evaluationError": "Evaluation error: {0}",
         "dataCollectedForAnalysis": "Data collected for {0} users. Detailed MFA compliance analysis will be performed in the workbook.",
         "guestUsersExcluded": "Guest accounts excluded (assumed compliant via cross-tenant access settings): {0}",
-        "nativeAndGuestCompliant": "All native accounts have MFA configured. Guest accounts ({0}) assumed compliant via cross-tenant access."
+        "nativeAndGuestCompliant": "All native accounts ({0}) have MFA configured. Guest accounts ({1}) assumed compliant via cross-tenant access.",
+        "nativeUsersWithoutMFA": "{0} native users do not have proper MFA configured out of {1} total native users",
+        "guestUsersSuffix": ". Guest accounts ({0}) assumed compliant via cross-tenant access."
     })
 );
 let userData = GuardrailsUserRaw_CL
@@ -159,21 +163,21 @@ let summary = mfaAnalysis
     IsCompliant = NonCompliantUsers == 0,
     Comments = case(
         TotalUsers == 0, localizedMessages["noUsersFound"],
-        NonCompliantUsers == 0 and GuestUsers > 0, iff(locale == "fr-CA", 
-            strcat("Tous les comptes natifs (", tostring(NativeUsers), ") ont l'AMF configurée. Comptes invités (", tostring(GuestUsers), ") présumés conformes via l'accès inter-locataires."),
-            strcat("All native accounts (", tostring(NativeUsers), ") have MFA configured. Guest accounts (", tostring(GuestUsers), ") assumed compliant via cross-tenant access.")
+        NonCompliantUsers == 0 and GuestUsers > 0, substitute(substitute(
+            localizedMessages["nativeAndGuestCompliant"], 
+            "{0}", tostring(NativeUsers)), 
+            "{1}", tostring(GuestUsers)
         ),
         NonCompliantUsers == 0, localizedMessages["allUsersHaveMFA"],
         NonCompliantNativeUsers > 0, strcat(
-            iff(locale == "fr-CA", 
-                strcat(tostring(NonCompliantNativeUsers), " utilisateurs natifs n'ont pas d'AMF appropriée configurée sur ", tostring(NativeUsers), " utilisateurs natifs totaux"),
-                strcat(tostring(NonCompliantNativeUsers), " native users do not have proper MFA configured out of ", tostring(NativeUsers), " total native users")
+            substitute(substitute(
+                localizedMessages["nativeUsersWithoutMFA"], 
+                "{0}", tostring(NonCompliantNativeUsers)), 
+                "{1}", tostring(NativeUsers)
             ), 
             iff(GuestUsers > 0, 
-                iff(locale == "fr-CA",
-                    strcat(". Comptes invités (", tostring(GuestUsers), ") présumés conformes via l'accès inter-locataires."),
-                    strcat(". Guest accounts (", tostring(GuestUsers), ") assumed compliant via cross-tenant access.")
-                ), ""
+                substitute(localizedMessages["guestUsersSuffix"], "{0}", tostring(GuestUsers)),
+                ""
             )
         ),
         "Unknown error"
