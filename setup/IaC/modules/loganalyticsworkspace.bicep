@@ -97,14 +97,18 @@ let localizedMessages = case(
         "usersWithoutMFA": "{0} utilisateurs n'ont pas d'AMF appropriée configurée sur {1} utilisateurs totaux",
         "noUsersFound": "Aucun utilisateur trouvé",
         "evaluationError": "Erreur d'évaluation: {0}",
-        "dataCollectedForAnalysis": "Données collectées pour {0} utilisateurs. L'analyse détaillée de la conformité AMF sera effectuée dans le classeur."
+        "dataCollectedForAnalysis": "Données collectées pour {0} utilisateurs. L'analyse détaillée de la conformité AMF sera effectuée dans le classeur.",
+        "guestUsersExcluded": "Comptes invités exclus (présumés conformes via paramètres d'accès inter-locataires): {0}",
+        "nativeAndGuestCompliant": "Tous les comptes natifs ont l'AMF configurée. Comptes invités ({0}) présumés conformes via l'accès inter-locataires."
     }),
     dynamic({
         "allUsersHaveMFA": "Native user accounts have been identified, and all users accounts have 2+ methods of authentication enabled.",
         "usersWithoutMFA": "{0} users do not have proper MFA configured out of {1} total users",
         "noUsersFound": "No users found",
         "evaluationError": "Evaluation error: {0}",
-        "dataCollectedForAnalysis": "Data collected for {0} users. Detailed MFA compliance analysis will be performed in the workbook."
+        "dataCollectedForAnalysis": "Data collected for {0} users. Detailed MFA compliance analysis will be performed in the workbook.",
+        "guestUsersExcluded": "Guest accounts excluded (assumed compliant via cross-tenant access settings): {0}",
+        "nativeAndGuestCompliant": "All native accounts have MFA configured. Guest accounts ({0}) assumed compliant via cross-tenant access."
     })
 );
 let userData = GuardrailsUserRaw_CL
@@ -134,23 +138,43 @@ let mfaAnalysis = userData
         0
     )
 | extend
-    isMfaCompliant = hasValidSystemPreferred or (hasMfaRegistered == true and validMfaMethodsCount >= 1);
+    isGuestUser = column_ifexists("userType_s", "") == "Guest",
+    // For guest users, assume compliance via cross-tenant access settings if no local MFA configured
+    // For native users, require proper MFA configuration
+    isMfaCompliant = iff(
+        isGuestUser,
+        true, // Assume guest users are compliant via cross-tenant access settings
+        hasValidSystemPreferred or (hasMfaRegistered == true and validMfaMethodsCount >= 1)
+    );
 let summary = mfaAnalysis
 | summarize 
     TotalUsers = count(),
+    NativeUsers = countif(isGuestUser == false),
+    GuestUsers = countif(isGuestUser == true),
     CompliantUsers = countif(isMfaCompliant == true),
-    NonCompliantUsers = countif(isMfaCompliant == false) 
+    NonCompliantUsers = countif(isMfaCompliant == false),
+    NonCompliantNativeUsers = countif(isMfaCompliant == false and isGuestUser == false),
+    NonCompliantGuestUsers = countif(isMfaCompliant == false and isGuestUser == true)
 | extend 
     IsCompliant = NonCompliantUsers == 0,
     Comments = case(
         TotalUsers == 0, localizedMessages["noUsersFound"],
+        NonCompliantUsers == 0 and GuestUsers > 0, iff(locale == "fr-CA", 
+            strcat("Tous les comptes natifs (", tostring(NativeUsers), ") ont l'AMF configurée. Comptes invités (", tostring(GuestUsers), ") présumés conformes via l'accès inter-locataires."),
+            strcat("All native accounts (", tostring(NativeUsers), ") have MFA configured. Guest accounts (", tostring(GuestUsers), ") assumed compliant via cross-tenant access.")
+        ),
         NonCompliantUsers == 0, localizedMessages["allUsersHaveMFA"],
-        NonCompliantUsers > 0, strcat(
+        NonCompliantNativeUsers > 0, strcat(
             iff(locale == "fr-CA", 
-                strcat(tostring(NonCompliantUsers), " utilisateurs n'ont pas d'AMF appropriée configurée sur ", tostring(TotalUsers), " utilisateurs totaux"),
-                strcat(tostring(NonCompliantUsers), " users do not have proper MFA configured out of ", tostring(TotalUsers), " total users")
+                strcat(tostring(NonCompliantNativeUsers), " utilisateurs natifs n'ont pas d'AMF appropriée configurée sur ", tostring(NativeUsers), " utilisateurs natifs totaux"),
+                strcat(tostring(NonCompliantNativeUsers), " native users do not have proper MFA configured out of ", tostring(NativeUsers), " total native users")
             ), 
-            " (", tostring(NonCompliantUsers), " non-compliant, ", tostring(CompliantUsers), " compliant)"
+            iff(GuestUsers > 0, 
+                iff(locale == "fr-CA",
+                    strcat(". Comptes invités (", tostring(GuestUsers), ") présumés conformes via l'accès inter-locataires."),
+                    strcat(". Guest accounts (", tostring(GuestUsers), ") assumed compliant via cross-tenant access.")
+                ), ""
+            )
         ),
         "Unknown error"
     );
@@ -193,7 +217,8 @@ let localizedMessages = case(
         "noValidMethods": "Aucune méthode AMF valide trouvée. Au moins 2 requises.",
         "noMfaConfigured": "Aucune AMF configurée",
         "neverSignedIn": "Jamais connecté",
-        "noNonCompliantUsers": "Aucun utilisateur non conforme trouvé"
+        "noNonCompliantUsers": "Aucun utilisateur natif non conforme trouvé",
+        "guestUserExcluded": "Invité - présumé conforme via accès inter-locataires"
     }),
     dynamic({
         "systemPreferred": "System preferred authentication: ",
@@ -203,7 +228,8 @@ let localizedMessages = case(
         "noValidMethods": "No valid MFA methods found. At least 2 required.",
         "noMfaConfigured": "No MFA configured",
         "neverSignedIn": "Never Signed In",
-        "noNonCompliantUsers": "No non-compliant users found"
+        "noNonCompliantUsers": "No non-compliant native users found",
+        "guestUserExcluded": "Guest - assumed compliant via cross-tenant access"
     })
 );
 let userData = GuardrailsUserRaw_CL
@@ -233,15 +259,23 @@ let mfaAnalysis = userData
         0
     )
 | extend
-    isMfaCompliant = hasValidSystemPreferred or (hasMfaRegistered == true and validMfaMethodsCount >= 1),
+    isGuestUser = column_ifexists("userType_s", "") == "Guest",
+    // For guest users, assume compliance via cross-tenant access settings
+    // For native users, require proper MFA configuration
+    isMfaCompliant = iff(
+        isGuestUser,
+        true, // Assume guest users are compliant via cross-tenant access settings
+        hasValidSystemPreferred or (hasMfaRegistered == true and validMfaMethodsCount >= 1)
+    ),
     complianceReason = case(
+        isGuestUser, tostring(localizedMessages["guestUserExcluded"]),
         hasValidSystemPreferred, strcat(tostring(localizedMessages["systemPreferred"]), strcat_array(set_intersect(systemPreferredMethodsArray, validSystemMethods), ", ")),
         hasMfaRegistered == true and validMfaMethodsCount >= 1, strcat(tostring(localizedMessages["mfaRegistered"]), strcat_array(set_intersect(methodsRegisteredArray, validMfaMethods), ", ")),
         hasMfaRegistered == true and validMfaMethodsCount == 0, tostring(localizedMessages["noValidMethods"]),
         tostring(localizedMessages["noMfaConfigured"])
     );
 let nonCompliantUsers = mfaAnalysis
-| where isMfaCompliant == false
+| where isMfaCompliant == false and isGuestUser == false  // Only show non-compliant native users
 | sort by signInActivity_lastSignInDateTime_t
 | project 
     DisplayName = column_ifexists("displayName_s", ""), 
