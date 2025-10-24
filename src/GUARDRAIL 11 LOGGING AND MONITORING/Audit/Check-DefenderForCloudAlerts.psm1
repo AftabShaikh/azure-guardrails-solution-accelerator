@@ -1,28 +1,3 @@
-function Get-SubscriptionOwnerCount {
-    param (
-        [Parameter(Mandatory=$true)]
-        [string]$SubscriptionId
-    )
-    
-    # Azure built-in Owner role ID (constant across all Azure tenants)
-    $ownerRoleId = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
-    
-    try {
-        # Get role assignments for the subscription scope for Owner role
-        $ownerAssignments = Get-AzRoleAssignment -Scope "/subscriptions/$SubscriptionId" -RoleDefinitionId $ownerRoleId -ErrorAction Stop
-        
-        # Count unique owners (filter out duplicates and service principals if needed)
-        $uniqueOwners = $ownerAssignments | Where-Object { $_.ObjectType -eq 'User' } | Select-Object -Unique ObjectId
-        
-        return $uniqueOwners.Count
-    }
-    catch {
-        # If we can't get the owner count, assume 1 (conservative approach)
-        Write-Warning "Unable to retrieve subscription owner count: $_"
-        return 1
-    }
-}
-
 function Get-DefenderForCloudAlerts {
     param (
         [Parameter(Mandatory=$true)]
