@@ -34,7 +34,6 @@ function Get-DefenderForCloudAlerts {
         # Initialize
         $isCompliant = $true
         $Comments = ""
-        $plansRequiringProtection = @()
 
         # find subscription information
         $subId = $subscription.Id
@@ -89,7 +88,7 @@ function Get-DefenderForCloudAlerts {
                 }
             }
 
-            # If there are resources but no protection plans are missing, or no resources at all
+            # Determine compliance based on protection plan requirements
             if ($plansRequiringProtection.Count -eq 0) {
                 # No resources requiring protection found - this is compliant
                 $Comments = $msgTable.DefenderCompliantNoResourcesFound
@@ -99,6 +98,8 @@ function Get-DefenderForCloudAlerts {
                 $isCompliant = $false
                 $Comments = $msgTable.DefenderPlansNotEnabledForResources -f ($missingProtectionPlans -join ', ')
             }
+            # If $plansRequiringProtection.Count > 0 and $missingProtectionPlans.Count == 0,
+            # then all required plans are enabled, continue to notification checks
         }
 
         # Continue with notification checks only if defender plans are properly configured and resources exist
@@ -155,15 +156,12 @@ function Get-DefenderForCloudAlerts {
 
         }
 
-        # Set final compliance message if still compliant
-        if ($isCompliant){
-            if (-not $Comments) {
-                # Default compliant message if no specific message was set
-                if ($plansRequiringProtection.Count -eq 0) {
-                    $Comments = $msgTable.DefenderCompliantNoResourcesFound
-                } else {
-                    $Comments = $msgTable.DefenderCompliant
-                }
+        # Set final compliance message if still compliant and no message was set
+        if ($isCompliant -and -not $Comments) {
+            if ($plansRequiringProtection.Count -eq 0) {
+                $Comments = $msgTable.DefenderCompliantNoResourcesFound
+            } else {
+                $Comments = $msgTable.DefenderCompliant
             }
         }
 
