@@ -339,11 +339,21 @@ resource guardrailsAC 'Microsoft.Automation/automationAccounts@2021-06-22' = if 
   }
 
   resource module37 'modules' = if (newDeployment || updatePSModules) {
-    name: 'Check-RiskBasedAccess'
+    name: 'Check-RiskBasedCAP'
     properties: {
       contentLink: {
-        uri: '${ModuleBaseURL}/Check-RiskBasedAccess.zip'
-        version: '1.0.4'
+        uri: '${ModuleBaseURL}/Check-RiskBasedCAP.zip'
+        version: '1.0.0'
+      }
+    }
+  }
+
+  resource module37a 'modules' = if (newDeployment || updatePSModules) {
+    name: 'Check-LocationBasedCAP'
+    properties: {
+      contentLink: {
+        uri: '${ModuleBaseURL}/Check-LocationBasedCAP.zip'
+        version: '1.0.0'
       }
     }
   }
