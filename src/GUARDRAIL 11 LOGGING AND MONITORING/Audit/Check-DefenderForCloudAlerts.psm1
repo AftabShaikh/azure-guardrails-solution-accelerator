@@ -79,8 +79,16 @@ function Get-DefenderForCloudAlerts {
 
             $emailCount = ($notificationEmails -split ";").Count
 
-            # CONDITION: Check if there is minimum two emails and owner is also notified
-            if(($emailCount -lt 2) -or ($ownerState -ne "On" -or $ownerRole -ne "Owner")){
+            # Get subscription owner count for enhanced validation
+            $ownerCount = Get-SubscriptionOwnerCount -SubscriptionId $subId
+            
+            # CONDITION: Check if there are minimum two contacts
+            # Either: 2+ emails, or owner notifications enabled with 2+ owners, or 1+ email + owner notifications with 1+ owner
+            $hasOwnerNotification = ($ownerState -eq "On" -and $ownerRole -eq "Owner")
+            $ownerContactCount = if ($hasOwnerNotification) { $ownerCount } else { 0 }
+            $totalContactCount = $emailCount + $ownerContactCount
+            
+            if ($totalContactCount -lt 2) {
                 $isCompliant = $false
                 $Comments = $msgTable.EmailsOrOwnerNotConfigured -f $($subscription.Name)
             }
