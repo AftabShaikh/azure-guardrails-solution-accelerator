@@ -14,6 +14,37 @@ Function Deploy-GSACoreResources {
 
     Write-Verbose "Initating deployment of core GSA resources..."
 
+    # Validate version security before deployment
+    try {
+        Import-Module "$PSScriptRoot/../../../Guardrails-Common/SecureVersioning.psm1" -Force -ErrorAction SilentlyContinue
+        
+        if (Get-Command Test-DeploymentVersionSecurity -ErrorAction SilentlyContinue) {
+            $proposedVersion = $config['runtime']['tagsTable'].ReleaseVersion
+            Write-Verbose "Validating deployment version security for: $proposedVersion"
+            
+            $versionSecurity = Test-DeploymentVersionSecurity -ProposedVersion $proposedVersion -StrictMode $false
+            
+            if (-not $versionSecurity.IsValid) {
+                Write-Warning "Version security validation failed: $($versionSecurity.Reason)"
+                Write-Warning "Deployment will continue, but this may indicate a security issue."
+            }
+            else {
+                Write-Verbose "Version security validation passed (Level: $($versionSecurity.SecurityLevel))"
+                if ($versionSecurity.Warnings.Count -gt 0) {
+                    foreach ($warning in $versionSecurity.Warnings) {
+                        Write-Warning "Version Security: $warning"
+                    }
+                }
+            }
+        }
+        else {
+            Write-Verbose "Secure versioning module not available - proceeding with standard deployment"
+        }
+    }
+    catch {
+        Write-Warning "Version security validation failed: $_. Proceeding with deployment."
+    }
+
     # create resource broup
     Write-Verbose "Creating resource group '$($config['runtime']['resourceGroup'])' in '$($config.region)' location."
     try {

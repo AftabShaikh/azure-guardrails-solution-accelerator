@@ -385,8 +385,40 @@ Function Confirm-GSAConfigurationParameters {
         $userId = (Get-AzAdUser -SignedIn).Id
     }
 
-    ## gets tags information from tags.json, including version and release date.
-    $tagsTable = get-content -path "$PSScriptRoot/../../../../setup/tags.json" | convertfrom-json -AsHashtable
+    ## gets tags information using secure versioning, with fallback to local tags.json
+    # Import secure versioning module
+    Import-Module "$PSScriptRoot/../../../../src/Guardrails-Common/SecureVersioning.psm1" -Force -ErrorAction SilentlyContinue
+    
+    # Try secure version retrieval first
+    try {
+        Write-Verbose "Attempting secure version retrieval for configuration..."
+        $secureVersionInfo = Get-SecureVersionInformation -AllowFallback $true
+        
+        if ($secureVersionInfo.SourceVerified) {
+            Write-Host "Using secure version information (Security Level: $($secureVersionInfo.SecurityResults.VerificationLevel))" -ForegroundColor Green
+            
+            $tagsTable = @{
+                Solution = "Guardrails Accelerator"
+                ReleaseVersion = $secureVersionInfo.ReleaseVersion
+                ReleaseDate = $secureVersionInfo.ReleaseDate
+            }
+            
+            # Log any security warnings
+            if ($secureVersionInfo.SecurityResults.SecurityWarnings.Count -gt 0) {
+                Write-Warning "Security warnings during version retrieval: $($secureVersionInfo.SecurityResults.SecurityWarnings -join '; ')"
+            }
+        }
+        else {
+            throw "Secure version retrieval failed"
+        }
+    }
+    catch {
+        Write-Warning "Secure version retrieval failed: $_. Falling back to local tags.json file."
+        Write-Warning "Note: Using local file reduces security against version spoofing."
+        
+        # Fallback to original method
+        $tagsTable = get-content -path "$PSScriptRoot/../../../../setup/tags.json" | convertfrom-json -AsHashtable
+    }
 
     ## unique resource name suffix, default to last segment of tenant ID
     If ([string]::IsNullOrEmpty($config.uniqueNameSuffix)) {
