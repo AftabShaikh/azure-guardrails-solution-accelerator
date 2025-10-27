@@ -30,6 +30,27 @@ function Check-CloudAccountsMFA {
         Write-Warning "Error: Failed to call Microsoft Graph REST API at URL '$CABaseAPIUrl'; returned error message: $_"
     }
     
+    # Get all users to identify Microsoft Entra Connector accounts
+    $urlPath = "/users"
+    $syncAccountIds = @()
+    try {
+        $response = Invoke-GraphQuery -urlPath $urlPath -ErrorAction Stop
+        $users = $response.Content.value | Select-Object userPrincipalName, id
+        
+        # Identify Microsoft Entra Connector accounts (sync accounts)
+        # These typically start with "Sync_" and are auto-created by Entra ID Connect
+        $syncAccounts = $users | Where-Object { $_.userPrincipalName -like "Sync_*" }
+        $syncAccountIds = $syncAccounts.id
+        
+        if ($syncAccounts.Count -gt 0) {
+            Write-Host "Found $($syncAccounts.Count) Microsoft Entra Connector sync account(s): $($syncAccounts.userPrincipalName -join ', ')"
+        }
+    }
+    catch {
+        $Errorlist.Add("Failed to retrieve users for sync account identification: $_")
+        Write-Warning "Error: Failed to retrieve users for sync account identification: $_"
+    }
+
     # check for a conditional access policy which meets these requirements:
     # 1. state =  'enabled'
     # 2. includedUsers = 'All'
@@ -42,6 +63,7 @@ function Check-CloudAccountsMFA {
     # 9. locations = null
     # 10. devices = null
     # 11. clientApplications = null
+    # 12. excludeUsers may contain Microsoft Entra Connector sync accounts
 
     $validPolicies = $caps | Where-Object {
         $_.state -eq 'enabled' -and
@@ -54,8 +76,11 @@ function Check-CloudAccountsMFA {
         [string]::IsNullOrEmpty($_.conditions.signInRiskLevels) -and
         [string]::IsNullOrEmpty($_.conditions.platforms) -and
         [string]::IsNullOrEmpty($_.conditions.locations) -and
-        [string]::IsNullOrEmpty($_.conditions.devices)  -and
-        [string]::IsNullOrEmpty($_.conditions.clientApplications) 
+        [string]::IsNullOrEmpty($_.conditions.devices) -and
+        [string]::IsNullOrEmpty($_.conditions.clientApplications) -and
+        # Allow exclusions for Microsoft Entra Connector sync accounts only
+        ($_.conditions.users.excludeUsers.Count -eq 0 -or 
+         ($_.conditions.users.excludeUsers | ForEach-Object { $_ -in $syncAccountIds }) -notcontains $false)
     }
 
     if ($validPolicies.count -ne 0) {
