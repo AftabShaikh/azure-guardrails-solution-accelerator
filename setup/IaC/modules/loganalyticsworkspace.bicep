@@ -242,7 +242,7 @@ let mfaAnalysis = userData
     );
 let nonCompliantUsers = mfaAnalysis
 | where isMfaCompliant == false
-| sort by signInActivity_lastSignInDateTime_t
+| sort by iff(isnull(signInActivity_lastSignInDateTime_t), datetime(1970-01-01), signInActivity_lastSignInDateTime_t), id_s
 | project 
     DisplayName = column_ifexists("displayName_s", ""), 
     UserPrincipalName = column_ifexists("userPrincipalName_s", ""), 
