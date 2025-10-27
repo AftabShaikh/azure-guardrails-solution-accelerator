@@ -326,6 +326,7 @@ EmailsOrOwnerNotConfigured = Les notifications d'alerte MS Defender pour l'abonn
 AlertNotificationNotConfigured = Les notifications d'alerte MS Defender sont incorrectes. Définissez la gravité à Moyen ou Faible et passez en revue le Guide de Remédiation.
 AttackPathNotificationNotConfigured = Les alertes Defender doivent inclure des notifications de chemin d'attaque. Assurez-vous que la gravité est définie à Moyen ou Faible pour les alertes de chaque abonnement, selon les instructions fournies dans le guide de Remédiation.
 DefenderCompliant = MS Defender pour l'infonuagique est activé pour cet abonnement et les notifications par courriel sont correctement configurées.
+DefenderCompliantSentinel = MS Defender pour l'infonuagique est activé pour cet abonnement. Les notifications par courriel ne sont pas requises car Sentinel est en cours d'utilisation.
 
 # GuardRail #12
 mktPlaceCreation = Création Place de marché
