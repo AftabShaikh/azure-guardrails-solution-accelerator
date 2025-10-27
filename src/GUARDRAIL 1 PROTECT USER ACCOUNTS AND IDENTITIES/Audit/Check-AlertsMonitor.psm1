@@ -260,6 +260,7 @@ function Check-AlertsMonitor {
             
             if ($bgAlertRules.Count -le 0) {
                 $Comments += $msgTable.noAlertRuleforBGaccts
+                $ErrorList += "No alert rules found matching break glass account patterns"
                 Write-Verbose "No alert rules found matching break glass account patterns"
             }
             else {
@@ -280,6 +281,7 @@ function Check-AlertsMonitor {
                 }
                 else {
                     $Comments += $msgTable.noActionGroupsForBGaccts
+                    $ErrorList += "No action groups with configured receivers found for break glass alert rules"
                     Write-Verbose "Break glass compliance: FALSE - No action groups with receivers found"
                 }
             }
@@ -304,6 +306,7 @@ function Check-AlertsMonitor {
             
             if ($capAlertRules.Count -le 0) {
                 $Comments += $msgTable.noAlertRuleforCaps
+                $ErrorList += "No alert rules found matching conditional access policy patterns"
                 Write-Verbose "No alert rules found matching conditional access policy patterns"
             }
             else {
@@ -324,6 +327,7 @@ function Check-AlertsMonitor {
                 }
                 else {
                     $Comments += $msgTable.noActionGroupsForAuditLogs
+                    $ErrorList += "No action groups with configured receivers found for conditional access policy alert rules"
                     Write-Verbose "Conditional access policy compliance: FALSE - No action groups with receivers found"
                 }
             }
