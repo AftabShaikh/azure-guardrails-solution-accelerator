@@ -3,13 +3,17 @@
    
 The solution will ensures that Break Glass accounts remain active and secure by monitoring the last login date.
 .DESCRIPTION
-The solution will ensures that Break Glass accounts remain active and secure by monitoring the last login date.
+The solution ensures that Break Glass accounts remain active and secure by monitoring the last login date. 
+This implementation uses Microsoft Graph API to retrieve user sign-in activity directly from Azure AD, 
+bypassing Log Analytics Workspace retention limitations that could cause false non-compliance when 
+LAW retention is set to less than a year.
 .PARAMETER Name
         token : auth token 
         ControlName :-  GUARDRAIL 13 PLAN FOR CONTINUITY
         FirstBreakGlassUPN: UPN for the first Break Glass account 
         SecondBreakGlassUPN: UPN for the second Break Glass account
         ItemName, 
+        LAWResourceId : Log Analytics Workspace Resource ID (kept for compatibility, but no longer used for sign-in validation - now uses Microsoft Graph API directly)
         WorkSpaceID : Workspace ID to ingest the logs 
         WorkSpaceKey: Workspace Key for the Workdspace 
         LogType: GuardrailsCompliance, it will show in log Analytics search as GuardrailsCompliance_CL
@@ -36,8 +40,8 @@ function Test-BreakGlassAccounts {
   $commentsArray = @()
   [PSCustomObject] $ErrorList = New-Object System.Collections.ArrayList
 
-  [String] $FirstBreakGlassUPNUrl = $("/users/" + $FirstBreakGlassUPN + "?$" + "select=userPrincipalName,id,userType")
-  [String] $SecondBreakGlassUPNUrl = $("/users/" + $SecondBreakGlassUPN + "?$" + "select=userPrincipalName,id,userType")
+  [String] $FirstBreakGlassUPNUrl = $("/users/" + $FirstBreakGlassUPN + "?$" + "select=userPrincipalName,id,userType,signInActivity")
+  [String] $SecondBreakGlassUPNUrl = $("/users/" + $SecondBreakGlassUPN + "?$" + "select=userPrincipalName,id,userType,signInActivity")
   
   $bgCountConfig = 0
   if ($FirstBreakGlassUPN -ne ""){$bgCountConfig += 1}
@@ -130,100 +134,95 @@ function Test-BreakGlassAccounts {
       }
     }
     else {
-      # Step 2: Validate BG account Sign-in activity
-      # Parse LAW Resource ID
-      $lawParts = $LAWResourceId -split '/'
-      $subscriptionId = $lawParts[2]
-      $resourceGroupName = $lawParts[4] 
-      $workspaceId = $lawParts[8] 
-
-      # get context
-      try{
-        Select-AzSubscription -Subscription $subscriptionId -ErrorAction Stop | Out-Null
-      }
-      catch {
-          $ErrorList.Add("Failed to execute the 'Select-AzSubscription' command with subscription ID '$($subscription)'--`
-              ensure you have permissions to the subscription, the ID is correct, and that it exists in this tenant; returned `
-              error message: $_")
-          throw "Error: Failed to execute the 'Select-AzSubscription' command with subscription ID '$($subscription)'--ensure `
-              you have permissions to the subscription, the ID is correct, and that it exists in this tenant; returned error message: $_"
-      }
-
-      # Validate signIn log is enabled
-      try {
-        # the log name to validate
-        $SignInLogs = @('SignInLogs')
-
-        # Retrieve diagnostic settings to check for logs
-        $diagnosticSettings = get-AADDiagnosticSettings
-        $matchingSetting = $diagnosticSettings | Where-Object { $_.properties.workspaceId -eq $LAWResourceId } | Select-Object -First 1
-
-        if($matchingSetting){
-          $enabledLogs = $matchingSetting.properties.logs | Where-Object { $_.enabled -eq $true } | Select-Object -ExpandProperty category
-          $missingSignInLogs = $SignInLogs | Where-Object { $_ -notin $enabledLogs }
+      # Step 2: Validate BG account Sign-in activity using Microsoft Graph API
+      # 
+      # IMPORTANT: This implementation uses Microsoft Graph API user.signInActivity property
+      # instead of querying SignInLogs from Log Analytics Workspace (LAW). This resolves 
+      # the issue where compliance checks would fail when LAW retention is set to less than 
+      # a year (e.g., 30 days) because logs get moved to cold storage and become inaccessible
+      # via KQL queries. 
+      #
+      # Benefits of this approach:
+      # - Works regardless of LAW retention policy (30 days, 90 days, 730 days, etc.)
+      # - More reliable data source (Azure AD directly vs. potentially incomplete logs)
+      # - Faster execution (single API call vs. complex LAW query)
+      # - Eliminates dependency on SignInLogs diagnostic settings configuration
+      
+      # Re-fetch Break Glass accounts with signInActivity data
+      $firstBGSignInData = $null
+      $secondBGSignInData = $null
+      
+      # Get first break glass account sign-in activity
+      if ($FirstBreakGlassAcct.existStatus -and $FirstBreakGlassUPN -ne "") {
+        try {
+          $urlPath = $FirstBreakGlassAcct.apiUrl
+          $response = Invoke-GraphQuery -urlPath $urlPath -ErrorAction Stop
+          $firstBGSignInData = $response.Content.signInActivity
         }
-        else{
-          $missingSignInLogs = $SignInLogs
-        }
-
-        # Check missing logs for SignInLogs, if missing/not enabled, non-compliant
-        if ($missingSignInLogs.Count -gt 0) {
-          $IsCompliant = $false
-          $commentsArray += $msgTable.isNotCompliant + " " + $msgTable.signInlogsNotCollected
+        catch {
+          $ErrorList.Add("Failed to retrieve sign-in activity for first Break Glass account '$FirstBreakGlassUPN': $_")
+          Write-Warning "Error: Failed to retrieve sign-in activity for first Break Glass account '$FirstBreakGlassUPN': $_"
         }
       }
-      catch {
-        # catch exceptions
-        if ($_.Exception.Message -like "*ResourceNotFound*") {
-          $IsCompliant = $false
-          $commentsArray += $msgTable.nonCompliantLaw -f $workspaceId
-          $ErrorList += "Log Analytics Workspace not found: $_"
+      
+      # Get second break glass account sign-in activity  
+      if ($SecondBreakGlassAcct.existStatus -and $SecondBreakGlassUPN -ne "") {
+        try {
+          $urlPath = $SecondBreakGlassAcct.apiUrl
+          $response = Invoke-GraphQuery -urlPath $urlPath -ErrorAction Stop
+          $secondBGSignInData = $response.Content.signInActivity
         }
-        else {
-          $IsCompliant = $false
-          $ErrorList += "Error accessing Log Analytics Workspace: $_"
+        catch {
+          $ErrorList.Add("Failed to retrieve sign-in activity for second Break Glass account '$SecondBreakGlassUPN': $_")
+          Write-Warning "Error: Failed to retrieve sign-in activity for second Break Glass account '$SecondBreakGlassUPN': $_"
         }
       }
-    }
-
-    # Retrieve the log data and check the data retention period for sign in
-    $kqlQuery = @"
-SigninLogs
-| where UserPrincipalName in ('$($FirstBreakGlassUPN)', '$($SecondBreakGlassUPN)')
-| project TimeGenerated, UserPrincipalName, CreatedDateTime
-| where TimeGenerated > ago(365d)
-| order by TimeGenerated desc
-"@
-
-    try {
-        $workspace = Get-AzOperationalInsightsWorkspace -ResourceGroupName $resourceGroupName -Name $workspaceId
-        $queryResults = Invoke-AzOperationalInsightsQuery -WorkspaceId $workspace.CustomerId -Query $kqlQuery -ErrorAction Stop
-        
-        # Access the Results property of the query output
-        $results = $queryResults.Results
-
-        # check break glass account signin
-        $dataMostRecentSignInFirstBG = $results | Where-Object {$_.UserPrincipalName -eq $FirstBreakGlassUPN} | Select-Object -First 1
-        $dataMostRecentSignInSecondBG = $results | Where-Object {$_.UserPrincipalName -eq $SecondBreakGlassUPN} | Select-Object -First 1
-    
-        if ($null -ne $dataMostRecentSignInFirstBG -or $null -ne $dataMostRecentSignInSecondBG) {
-            $IsCompliant = $true
+      
+      # Check if either account has signed in within the last 365 days
+      $currentDate = Get-Date
+      $oneYearAgo = $currentDate.AddDays(-365)
+      $hasRecentSignIn = $false
+      
+      # Check first Break Glass account
+      if ($null -ne $firstBGSignInData -and $null -ne $firstBGSignInData.lastSignInDateTime) {
+        try {
+          $lastSignInDate = [DateTime]::Parse($firstBGSignInData.lastSignInDateTime)
+          if ($lastSignInDate -gt $oneYearAgo) {
+            $hasRecentSignIn = $true
+            Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+          } else {
+            Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC (older than 365 days)"
+          }
         }
-    }
-    catch {
-      if ($null -eq $workspace) {
-        $IsCompliant = $false
-        $commentsArray += "Workspace not found in the specified resource group"
-        $ErrorList += "Workspace not found in the specified resource group: $_"
+        catch {
+          $ErrorList.Add("Failed to parse lastSignInDateTime for first Break Glass account '$FirstBreakGlassUPN': $_")
+          Write-Warning "Error: Failed to parse lastSignInDateTime for first Break Glass account '$FirstBreakGlassUPN': $_"
+        }
+      } else {
+        Write-Verbose "First Break Glass account '$FirstBreakGlassUPN' has no sign-in activity data available"
       }
-      if($_.Exception.Message -like "*ResourceNotFound*"){
-
+      
+      # Check second Break Glass account
+      if ($null -ne $secondBGSignInData -and $null -ne $secondBGSignInData.lastSignInDateTime) {
+        try {
+          $lastSignInDate = [DateTime]::Parse($secondBGSignInData.lastSignInDateTime)
+          if ($lastSignInDate -gt $oneYearAgo) {
+            $hasRecentSignIn = $true
+            Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+          } else {
+            Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' last signed in on $($lastSignInDate.ToString('yyyy-MM-dd HH:mm:ss')) UTC (older than 365 days)"
+          }
+        }
+        catch {
+          $ErrorList.Add("Failed to parse lastSignInDateTime for second Break Glass account '$SecondBreakGlassUPN': $_")
+          Write-Warning "Error: Failed to parse lastSignInDateTime for second Break Glass account '$SecondBreakGlassUPN': $_"
+        }
+      } else {
+        Write-Verbose "Second Break Glass account '$SecondBreakGlassUPN' has no sign-in activity data available"
       }
-      else{
-        # Handle errors and exceptions
-        $IsCompliant = $false
-        Write-Host "Error occurred retrieving the sign-in log data: $_"
-      }
+      
+      # Set compliance status based on sign-in activity
+      $IsCompliant = $hasRecentSignIn
     }
     
 
