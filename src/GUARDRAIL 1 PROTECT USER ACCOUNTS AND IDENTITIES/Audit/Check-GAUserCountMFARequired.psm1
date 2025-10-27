@@ -147,8 +147,42 @@ function Check-GAUserCountMFARequired {
         $ErrorList.Add($errorMsg)
         Write-Error "Error: $errorMsg"
     }
-    # Get member users UPNs
-    $gaUserList = $gaRoleResponse 
+    # Get member users UPNs - filter to only include users, not groups
+    $gaUserList = $gaRoleResponse | Where-Object { $_.'@odata.type' -like '*user*' }
+    
+    # Get groups that have been assigned the Global Administrator role
+    $gaGroupList = $gaRoleResponse | Where-Object { $_.'@odata.type' -like '*group*' }
+    
+    # If there are groups assigned the GA role, get their members and add to the user list
+    if ($gaGroupList.Count -gt 0) {
+        Write-Host "Found $($gaGroupList.Count) group(s) with Global Administrator role"
+        foreach ($group in $gaGroupList) {
+            $groupId = $group.id
+            $groupName = $group.displayName
+            Write-Host "Getting members for group: $groupName"
+            
+            # Get group members (both direct members and eligible members would be returned by /members endpoint)
+            $groupMembersUrlPath = "/groups/$groupId/members"
+            try {
+                $groupMembersResponse = Invoke-GraphQuery -urlPath $groupMembersUrlPath -ErrorAction Stop
+                $groupMembersData = $groupMembersResponse.Content
+                
+                if ($null -ne $groupMembersData -and $null -ne $groupMembersData.value) {
+                    # Filter to only include users from the group members
+                    $groupUsers = $groupMembersData.value | Where-Object { $_.'@odata.type' -like '*user*' }
+                    Write-Host "Found $($groupUsers.Count) user member(s) in group: $groupName"
+                    
+                    # Add group users to the main user list
+                    $gaUserList += $groupUsers
+                }
+            }
+            catch {
+                $errorMsg = "Failed to get members for group '$groupName' (ID: $groupId); returned error message: $_"
+                $ErrorList.Add($errorMsg)
+                Write-Error "Error: $errorMsg"
+            }
+        }
+    } 
     # Exclude the breakglass account UPNs from the list
     if ($gaUserList.userPrincipalName -contains $FirstBreakGlassUPN){
         $gaUserList = $gaUserList | Where-Object { $_.userPrincipalName -ne $FirstBreakGlassUPN }
