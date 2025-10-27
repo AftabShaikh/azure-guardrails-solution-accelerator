@@ -18,7 +18,7 @@ function Test-CommonFilters {
     # 8. platforms = null
     # 9. locations = null
     # 10. devices = null
-    # 11. clientApplications = null
+    # 11. clientApplications = null OR all client app types selected (functionally equivalent)
     # 12. signInFrequency.frequencyInterval = 'everyTime'
     # 13. signInFrequency.isEnabled = true
     # 14. signInFrequency.authenticationType = 'primaryAndSecondaryAuthentication'
@@ -54,7 +54,17 @@ function Test-CommonFilters {
             [string]::IsNullOrEmpty($_.conditions.platforms) -and
             [string]::IsNullOrEmpty($_.conditions.locations) -and
             [string]::IsNullOrEmpty($_.conditions.devices)  -and
-            [string]::IsNullOrEmpty($_.conditions.clientApplications) -and
+            (
+                [string]::IsNullOrEmpty($_.conditions.clientApplications) -or
+                (
+                    $_.conditions.clientApplications -is [array] -and
+                    $_.conditions.clientApplications.Count -ge 4 -and
+                    $_.conditions.clientApplications -contains 'browser' -and
+                    $_.conditions.clientApplications -contains 'mobileAppsAndDesktopClients' -and
+                    $_.conditions.clientApplications -contains 'exchangeActiveSync' -and
+                    $_.conditions.clientApplications -contains 'other'
+                )
+            ) -and
             [string]::IsNullOrEmpty($_.conditions.users.includedGroups) -and
             [string]::IsNullOrEmpty($_.conditions.applications.excludeApplications) -and
             [string]::IsNullOrEmpty($_.conditions.users.includeRoles) -and
