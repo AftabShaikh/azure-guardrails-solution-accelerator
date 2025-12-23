@@ -102,8 +102,8 @@ function Check-GuestRoleReviews {
                         $review | Add-Member -MemberType NoteProperty -Name "Scope" -Value $scope
                     }
 
-                    # Filter for guest scoped only
-                    $guestAccessReviewList = $expandedList | Where-Object { $_.Scope -like '*Guest*' }
+                    # Filter for guest scoped only (including custom scope for access packages)
+                    $guestAccessReviewList = $expandedList | Where-Object { $_.Scope -like '*Guest*' -or $_.Scope -like '*Custom*' }
                     # Condition: if any access reviews scoped to guest user
                     if( $guestAccessReviewList.Count -eq 0){
                         # No scheduled guest access review
